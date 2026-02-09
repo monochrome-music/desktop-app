@@ -13,7 +13,10 @@ pub fn configure(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::W
 }
 
 pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
-    let init_script = include_str!("../google-auth-init.js");
+    let mut init_script = String::new();
+    init_script.push_str(include_str!("../google-auth-init.js"));
+    init_script.push('\n');
+    init_script.push_str(include_str!("../mobile-gestures.js"));
 
     let _window = WebviewWindowBuilder::new(
         app,
