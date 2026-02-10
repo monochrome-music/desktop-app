@@ -4,7 +4,7 @@
     }
     window.__monochromeGoogleAuthInjected = true;
 
-    const CLIENT_ID = 'REPLACE_ME.apps.googleusercontent.com';
+    const CLIENT_ID = '895657412760-c5snes8l2o0sgrarq5fkhl04n3mb59u9.apps.googleusercontent.com';
     const SCOPES = ['openid', 'email', 'profile'];
 
     function getInvoke() {
