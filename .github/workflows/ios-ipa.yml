@@ -121,6 +121,12 @@ jobs:
               data["UIFileSharingEnabled"] = True
               data["LSSupportsOpeningDocumentsInPlace"] = True
 
+              # Allow background audio playback
+              bg_modes = data.get("UIBackgroundModes") or []
+              if "audio" not in bg_modes:
+                  bg_modes.append("audio")
+              data["UIBackgroundModes"] = bg_modes
+
               with open(path, "wb") as f:
                   plistlib.dump(data, f)
               patched.append(path)
