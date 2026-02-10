@@ -36,6 +36,17 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Generate Tauri icons
+        run: |
+          set -euo pipefail
+          ICON_SOURCE="512_bbg.png"
+          if [ ! -f "$ICON_SOURCE" ]; then
+            echo "Icon source not found at $ICON_SOURCE" >&2
+            exit 1
+          fi
+
+          npm run tauri -- icon "$ICON_SOURCE"
+
       - name: Generate iOS project
         run: npm run tauri ios init
 
