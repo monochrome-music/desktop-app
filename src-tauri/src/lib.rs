@@ -30,12 +30,12 @@ pub fn save_source_url(handle: &AppHandle, url: &str) {
 }
 
 #[tauri::command]
-pub fn get_source_url(app: AppHandle) -> String {
+fn get_source_url(app: AppHandle) -> String {
     load_source_url(&app)
 }
 
 #[tauri::command]
-pub fn set_source_url(app: AppHandle, url: String) -> Result<String, String> {
+fn set_source_url(app: AppHandle, url: String) -> Result<String, String> {
     let url = url.trim().to_string();
     if !url.starts_with("https://") {
         return Err("Only HTTPS URLs are allowed".into());

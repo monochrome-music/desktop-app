@@ -6,6 +6,7 @@
     "core:default",
     "core:event:default",
     "open-external",
+    "source-url",
     "google-auth:default",
     "fs:allow-exists",
     "fs:allow-write-file",

@@ -10,7 +10,14 @@
   var lastTapX = 0;
   var lastTapY = 0;
 
+  function isAboutPage() {
+    var path = (location.pathname || "").toLowerCase();
+    var hash = (location.hash || "").toLowerCase();
+    return path.indexOf("/about") !== -1 || hash.indexOf("about") !== -1;
+  }
+
   window.addEventListener("touchend", function(e) {
+    if (!isAboutPage()) return;
     if (e.changedTouches.length !== 1) return;
     var touch = e.changedTouches[0];
     var now = Date.now();

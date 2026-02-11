@@ -1,3 +1,4 @@
+use crate::{get_source_url, open_external, set_source_url};
 use tauri::{WebviewUrl, WebviewWindowBuilder};
 
 #[cfg(target_os = "ios")]
@@ -10,9 +11,9 @@ mod android;
 
 pub fn configure(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
     builder.invoke_handler(tauri::generate_handler![
-        crate::open_external,
-        crate::get_source_url,
-        crate::set_source_url
+        open_external,
+        get_source_url,
+        set_source_url
     ])
 }
 

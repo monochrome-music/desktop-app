@@ -1,3 +1,4 @@
+use crate::{get_source_url, open_external, set_source_url};
 use discord_rich_presence::{DiscordIpc, DiscordIpcClient};
 use serde_json::json;
 use std::fs;
@@ -178,9 +179,9 @@ pub fn configure(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::W
         })
         .invoke_handler(tauri::generate_handler![
             update_discord_presence,
-            crate::open_external,
-            crate::get_source_url,
-            crate::set_source_url
+            open_external,
+            get_source_url,
+            set_source_url
         ])
 }
 
