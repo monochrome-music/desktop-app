@@ -9,6 +9,19 @@ mod android;
 
 // ── Setup ──
 
+#[cfg(target_os = "android")]
+pub fn configure(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
+    builder.invoke_handler(tauri::generate_handler![
+        open_external,
+        get_source_url,
+        set_source_url,
+        crate::android_download::android_download_begin,
+        crate::android_download::android_download_write,
+        crate::android_download::android_download_finish
+    ])
+}
+
+#[cfg(not(target_os = "android"))]
 pub fn configure(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
     builder.invoke_handler(tauri::generate_handler![
         open_external,
@@ -22,7 +35,17 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let mut init_script = String::new();
     init_script.push_str(include_str!("../google-auth-init.js"));
     init_script.push('\n');
-    init_script.push_str(include_str!("../ios-download-init.js"));
+    #[cfg(target_os = "android")]
+    {
+        init_script.push_str(include_str!("../android-download-init.js"));
+        init_script.push('\n');
+    }
+    #[cfg(target_os = "ios")]
+    {
+        init_script.push_str(include_str!("../ios-download-init.js"));
+        init_script.push('\n');
+    }
+    init_script.push_str(include_str!("../mobile-download-init.js"));
     init_script.push('\n');
     init_script.push_str(include_str!("../external-links.js"));
     init_script.push('\n');

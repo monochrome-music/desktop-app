@@ -71,6 +71,9 @@ mod desktop;
 #[cfg(mobile)]
 mod mobile;
 
+#[cfg(target_os = "android")]
+mod android_download;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default()

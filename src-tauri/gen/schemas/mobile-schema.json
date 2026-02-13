@@ -2355,6 +2355,12 @@
       "description": "Permission identifier",
       "oneOf": [
         {
+          "description": "Allow saving downloads to Android public folders.",
+          "type": "string",
+          "const": "android-download",
+          "markdownDescription": "Allow saving downloads to Android public folders."
+        },
+        {
           "description": "Allow opening external links from the webview.",
           "type": "string",
           "const": "open-external",

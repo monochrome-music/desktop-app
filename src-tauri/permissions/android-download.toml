@@ -1,0 +1,8 @@
+# Copyright 2019-2024 Tauri Programme within The Commons Conservancy
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: MIT
+
+[[permission]]
+identifier = "android-download"
+description = "Allow saving downloads to Android public folders."
+commands.allow = ["android_download_begin", "android_download_write", "android_download_finish"]

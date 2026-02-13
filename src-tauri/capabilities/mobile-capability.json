@@ -9,6 +9,7 @@
     "source-url",
     "media-toolkit:default",
     "google-auth:default",
+    "android-download",
     "fs:allow-exists",
     "fs:allow-write-file",
     {
