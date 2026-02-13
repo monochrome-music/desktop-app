@@ -63,7 +63,7 @@ jobs:
           npm run tauri -- icon "$ICON_SOURCE"
 
       - name: Build Android APK
-        run: npm run tauri -- android build --apk --target aarch64
+        run: npm run tauri -- android build --apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
