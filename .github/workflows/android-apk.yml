@@ -1,0 +1,72 @@
+name: android-apk
+
+on:
+  push:
+    branches: [main, mobile/android]
+  workflow_dispatch:
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Java JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Setup Android NDK
+        uses: nttld/setup-ndk@v1
+        id: setup-ndk
+        with:
+          ndk-version: r27d
+          link-to-sdk: true
+
+      - name: Set NDK_HOME
+        run: echo "NDK_HOME=${{ steps.setup-ndk.outputs.ndk-path }}" >> "$GITHUB_ENV"
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Generate Android project
+        run: npm run tauri android init
+
+      - name: Generate Tauri icons
+        run: |
+          set -euo pipefail
+          ICON_SOURCE="512_bbg.png"
+          if [ ! -f "$ICON_SOURCE" ]; then
+            echo "Icon source not found at $ICON_SOURCE" >&2
+            exit 1
+          fi
+
+          npm run tauri -- icon "$ICON_SOURCE"
+
+      - name: Build Android APK
+        run: npm run tauri -- android build --apk --target aarch64
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
