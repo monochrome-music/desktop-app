@@ -1,0 +1,13 @@
+{
+  "identifier": "desktop-capability",
+  "windows": ["main", "popup-*"],
+  "platforms": ["windows", "macOS", "linux"],
+  "permissions": [
+    "core:webview:allow-create-webview-window",
+    "notification:default",
+    "global-shortcut:default",
+    "open-external",
+    "source-url",
+    "google-auth:default"
+  ]
+}

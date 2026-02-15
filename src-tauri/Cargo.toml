@@ -2,20 +2,38 @@
 name = "Monochrome"
 version = "0.1.0"
 description = "Minimalist, Unlimited Music Streaming."
-authors = ["Samidy"]
+authors = ["Samidy", "Blacksigkill"]
 edition = "2021"
 
+[lib]
+name = "monochrome_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
 [build-dependencies]
-tauri-build = { version = "2.0", features = [] }
+tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2.0", features = ["devtools", "image-png", "tray-icon"] }
-tauri-plugin-notification = "2.0"
-tauri-plugin-global-shortcut = "2.0"
-tauri-plugin-shell = "2.0"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-media-toolkit = "0.1"
+tauri-plugin-google-auth = "0.5"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+url = "2"
+
+[features]
+cargo-clippy = []
+
+[target.'cfg(target_os = "ios")'.dependencies]
+objc = "0.2"
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri = { version = "2", features = ["devtools", "tray-icon", "image-png"] }
 discord-rich-presence = "0.2"
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-notification = "2"
 tauri-plugin-single-instance = "2.3.7"
-tauri-plugin-dialog = "2.0"
-tauri-plugin-window-state = "2.0"
+tauri-plugin-dialog = "2"
+tauri-plugin-window-state = "2"

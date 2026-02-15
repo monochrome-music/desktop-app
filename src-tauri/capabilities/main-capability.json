@@ -1,17 +1,16 @@
 {
   "identifier": "main-capability",
-  "windows": ["main", "popup-*"],
+  "windows": ["main"],
   "permissions": [
     "core:default",
     "core:window:default",
-    "core:webview:allow-create-webview-window",
     "core:event:default",
-    "notification:default",
-    "global-shortcut:default",
-    "shell:allow-open"
+    "open-external",
+    "source-url",
+    "shell:allow-open",
+    "google-auth:default"
   ],
-  "platforms": ["windows", "macOS", "linux"],
   "remote": {
-    "urls": ["https://monochrome.samidy.com"]
+    "urls": ["https://*"]
   }
 }

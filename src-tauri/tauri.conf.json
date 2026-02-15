@@ -1,7 +1,7 @@
 {
   "productName": "Monochrome",
   "version": "0.1.0",
-  "identifier": "com.samidy.monochrome",
+  "identifier": "com.monochrome.music",
   "build": {
     "beforeDevCommand": "",
     "beforeBuildCommand": "",
@@ -13,17 +13,24 @@
     "icon": [
       "icons/icon.png",
       "icons/icon.ico"
-    ]
+    ],
+    "iOS": {
+      "minimumSystemVersion": "16.0",
+      "infoPlist": "Info.ios.plist"
+    }
   },
   "app": {
     "withGlobalTauri": true,
     "security": {
       "csp": null,
-      "capabilities": ["main-capability"]
+      "capabilities": [
+        "main-capability",
+        "desktop-capability",
+        "mobile-capability"
+      ]
     }
   },
   "plugins": {
-    "globalShortcut": {},
     "shell": {
       "open": true
     }

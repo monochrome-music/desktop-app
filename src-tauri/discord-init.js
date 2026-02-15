@@ -5,28 +5,32 @@
     window.discordRpcInjected = true;
 
     const originalOpen = window.open;
+    const isMobile = /iPhone|iPad|Android/i.test(navigator.userAgent);
     window.open = function(url, target, features) {
         const urlStr = String(url || '');
-        const isExternalAuth = urlStr.includes('last.fm') || 
-                               urlStr.includes('spotify.com') || 
+        const isExternalAuth = urlStr.includes('last.fm') ||
+                               urlStr.includes('spotify.com') ||
                                urlStr.includes('google.com') ||
-                               urlStr.includes('discord.com');
-                               urlStr.includes('monochrome-database.firebaseapp.com')
+                               urlStr.includes('discord.com') ||
+                               urlStr.includes('monochrome-database.firebaseapp.com');
 
         if (isExternalAuth) {
+            if (isMobile) {
+                return originalOpen.apply(window, arguments);
+            }
             if (window.__TAURI__?.shell) {
                 window.__TAURI__.shell.open(urlStr);
             }
-            return { 
-                close: () => {}, 
-                focus: () => {}, 
-                blur: () => {}, 
+            return {
+                close: () => {},
+                focus: () => {},
+                blur: () => {},
                 postMessage: () => {},
                 closed: false,
                 location: { href: urlStr }
             };
         }
-        
+
         return originalOpen.apply(window, arguments);
     };
 

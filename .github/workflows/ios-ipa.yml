@@ -1,0 +1,293 @@
+name: ios-ipa
+
+on:
+  push:
+    branches: [ main, mobile/ios ]
+  workflow_dispatch:
+
+jobs:
+  build-ios:
+    runs-on: macos-14
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 16 if available
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          XCODE_16_APPS=(/Applications/Xcode_16*.app)
+          if [ ${#XCODE_16_APPS[@]} -gt 0 ]; then
+            sudo xcode-select -s "${XCODE_16_APPS[${#XCODE_16_APPS[@]}-1]}"
+          fi
+          xcodebuild -version
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Generate iOS project
+        run: npm run tauri ios init
+
+      - name: Inject Firebase plist and patch Info.plist
+        env:
+          IOS_GOOGLE_SERVICE_INFO_PLIST_B64: ${{ secrets.IOS_GOOGLE_SERVICE_INFO_PLIST_B64 }}
+        run: |
+          set -euo pipefail
+          export PROJECT_DIR="$GITHUB_WORKSPACE/src-tauri/gen/apple"
+          python3 - <<'PY'
+          import base64
+          import json
+          import os
+          import plistlib
+          import sys
+
+          project_dir = os.environ["PROJECT_DIR"]
+          data_b64 = os.environ.get("IOS_GOOGLE_SERVICE_INFO_PLIST_B64", "").strip()
+          if not data_b64:
+              print("Missing IOS_GOOGLE_SERVICE_INFO_PLIST_B64 secret.")
+              sys.exit(1)
+
+          plist_path = os.path.join(project_dir, "GoogleService-Info.plist")
+          with open(plist_path, "wb") as f:
+              f.write(base64.b64decode(data_b64))
+
+          with open(plist_path, "rb") as f:
+              firebase_plist = plistlib.load(f)
+
+          reversed_client_id = (firebase_plist.get("REVERSED_CLIENT_ID") or "").strip()
+          if not reversed_client_id:
+              print("REVERSED_CLIENT_ID missing in GoogleService-Info.plist.")
+              sys.exit(1)
+
+          product_name = ""
+          try:
+              with open("src-tauri/tauri.conf.json", "r", encoding="utf-8") as f:
+                  product_name = (json.load(f).get("productName") or "").strip()
+          except Exception:
+              product_name = ""
+
+          candidates = []
+          if product_name:
+              candidates.append(os.path.join(project_dir, product_name, "Info.plist"))
+
+          for root, _dirs, files in os.walk(project_dir):
+              if "Info.plist" in files:
+                  path = os.path.join(root, "Info.plist")
+                  if "/Pods/" in path or "/Tests/" in path or "/UITests/" in path:
+                      continue
+                  if path not in candidates:
+                      candidates.append(path)
+
+          patched = []
+          for path in candidates:
+              if not os.path.exists(path):
+                  continue
+              try:
+                  with open(path, "rb") as f:
+                      data = plistlib.load(f)
+              except Exception:
+                  continue
+
+              url_types = data.get("CFBundleURLTypes") or []
+              has_scheme = False
+              for entry in url_types:
+                  if isinstance(entry, dict):
+                      schemes = entry.get("CFBundleURLSchemes") or []
+                      if reversed_client_id in schemes:
+                          has_scheme = True
+                          break
+              if not has_scheme:
+                  url_types.append({"CFBundleURLSchemes": [reversed_client_id]})
+              data["CFBundleURLTypes"] = url_types
+
+              query_schemes = data.get("LSApplicationQueriesSchemes") or []
+              for scheme in ("googlechrome", "safari"):
+                  if scheme not in query_schemes:
+                      query_schemes.append(scheme)
+              data["LSApplicationQueriesSchemes"] = query_schemes
+
+              # Enable file sharing so downloads appear in Files app
+              data["UIFileSharingEnabled"] = True
+              data["LSSupportsOpeningDocumentsInPlace"] = True
+
+              # Allow background audio playback
+              bg_modes = data.get("UIBackgroundModes") or []
+              if "audio" not in bg_modes:
+                  bg_modes.append("audio")
+              data["UIBackgroundModes"] = bg_modes
+
+              with open(path, "wb") as f:
+                  plistlib.dump(data, f)
+              patched.append(path)
+
+          if not patched:
+              print("No Info.plist patched. Check generated project structure.")
+              sys.exit(1)
+
+          print("Patched Info.plist files:")
+          for path in patched:
+              print(path)
+          PY
+
+      - name: Generate Tauri icons
+        run: |
+          set -euo pipefail
+          ICON_SOURCE="512_bbg.png"
+          if [ ! -f "$ICON_SOURCE" ]; then
+            echo "Icon source not found at $ICON_SOURCE" >&2
+            exit 1
+          fi
+
+          npm run tauri -- icon "$ICON_SOURCE"
+
+      - name: Build unsigned iOS .ipa
+        run: |
+          set -euo pipefail
+          export TMPDIR="$RUNNER_TEMP/tauri-tmp"
+          mkdir -p "$TMPDIR"
+
+          TAURI_OPEN_LOG="$RUNNER_TEMP/tauri-ios-open.log"
+          npm run tauri -- ios build --open > "$TAURI_OPEN_LOG" 2>&1 &
+          TAURI_OPEN_PID=$!
+          trap 'kill "$TAURI_OPEN_PID" 2>/dev/null || true' EXIT
+
+          ADDR_PATH=$(python3 - <<'PY'
+          import json
+          import os
+          import tempfile
+
+          with open("src-tauri/tauri.conf.json", "r", encoding="utf-8") as f:
+            identifier = json.load(f)["identifier"]
+
+          print(os.path.join(tempfile.gettempdir(), f"{identifier}-server-addr"))
+          PY
+          )
+
+          for _ in $(seq 1 60); do
+            if [ -s "$ADDR_PATH" ]; then
+              break
+            fi
+            sleep 1
+          done
+
+          if [ ! -s "$ADDR_PATH" ]; then
+            echo "Tauri options server did not start. Missing $ADDR_PATH" >&2
+            cat "$TAURI_OPEN_LOG" >&2 || true
+            exit 1
+          fi
+
+          PROJECT_DIR="$GITHUB_WORKSPACE/src-tauri/gen/apple"
+          shopt -s nullglob
+          WORKSPACES=("$PROJECT_DIR"/*.xcworkspace)
+          PROJECTS=("$PROJECT_DIR"/*.xcodeproj)
+          WORKSPACE="${WORKSPACES[0]:-}"
+          PROJECT="${PROJECTS[0]:-}"
+          if [ -n "$WORKSPACE" ]; then
+            BUILD_CONTAINER=(-workspace "$WORKSPACE")
+            CONTAINER_PATH="$WORKSPACE"
+          elif [ -n "$PROJECT" ]; then
+            BUILD_CONTAINER=(-project "$PROJECT")
+            CONTAINER_PATH="$PROJECT"
+          else
+            echo "No Xcode workspace/project found in $PROJECT_DIR" >&2
+            exit 1
+          fi
+
+          if [ -n "$PROJECT" ] && [ ! -f "$PROJECT/project.pbxproj" ]; then
+            echo "Missing project.pbxproj: $PROJECT/project.pbxproj" >&2
+            ls -la "$PROJECT_DIR" >&2
+            exit 1
+          fi
+
+          LIST_JSON=$(xcodebuild "${BUILD_CONTAINER[@]}" -list -json 2>/dev/null || true)
+          export LIST_JSON
+          eval "$(python3 - <<'PY'
+          import json, os, shlex
+          product = ""
+          try:
+            with open("src-tauri/tauri.conf.json", "r", encoding="utf-8") as f:
+              product = (json.load(f).get("productName") or "").strip()
+          except Exception:
+            product = ""
+
+          raw = (os.environ.get("LIST_JSON") or "").strip()
+          schemes = []
+          targets = []
+          if raw:
+            try:
+              data = json.loads(raw)
+              container = next(iter(data.values()), {})
+              schemes = container.get("schemes") or []
+              targets = container.get("targets") or []
+            except Exception:
+              pass
+
+          scheme = ""
+          if product and product in schemes:
+            scheme = product
+          elif schemes:
+            scheme = schemes[0]
+
+          target = targets[0] if targets else ""
+
+          print("XCODE_SCHEME=" + shlex.quote(scheme))
+          print("XCODE_TARGET=" + shlex.quote(target))
+          PY
+          )"
+
+          BUILD_SELECTOR=()
+          if [ -n "$XCODE_SCHEME" ]; then
+            BUILD_SELECTOR=(-scheme "$XCODE_SCHEME")
+          elif [ -n "$XCODE_TARGET" ]; then
+            BUILD_SELECTOR=(-target "$XCODE_TARGET")
+          else
+            echo "No scheme or target found" >&2
+            exit 1
+          fi
+
+          DERIVED_DATA="$RUNNER_TEMP/DerivedData"
+          xcodebuild "${BUILD_CONTAINER[@]}" \
+            "${BUILD_SELECTOR[@]}" \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath "$DERIVED_DATA" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM=""
+
+          APP_PATH=""
+          for candidate in "$DERIVED_DATA/Build/Products/"*-iphoneos/*.app; do
+            if [ -d "$candidate" ]; then
+              APP_PATH="$candidate"
+              break
+            fi
+          done
+          if [ -z "$APP_PATH" ]; then
+            echo "Built .app not found" >&2
+            exit 1
+          fi
+
+          APP_NAME=$(basename "$APP_PATH" .app)
+          IPA_DIR="$RUNNER_TEMP/ipa"
+          IPA_PATH="$GITHUB_WORKSPACE/${APP_NAME}-unsigned.ipa"
+          mkdir -p "$IPA_DIR/Payload"
+          cp -R "$APP_PATH" "$IPA_DIR/Payload/"
+          (cd "$IPA_DIR" && /usr/bin/zip -r "$IPA_PATH" Payload)
+
+      - name: Upload iOS .ipa artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-unsigned-ipa
+          path: "*.ipa"

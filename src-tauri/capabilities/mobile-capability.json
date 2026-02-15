@@ -1,0 +1,25 @@
+{
+  "identifier": "mobile-capability",
+  "windows": ["main"],
+  "platforms": ["iOS", "android"],
+  "permissions": [
+    "core:default",
+    "core:event:default",
+    "open-external",
+    "source-url",
+    "media-toolkit:default",
+    "google-auth:default",
+    "fs:allow-exists",
+    "fs:allow-write-file",
+    {
+      "identifier": "fs:scope",
+      "allow": [
+        "$DOCUMENT",
+        "$DOCUMENT/**"
+      ]
+    }
+  ],
+  "remote": {
+    "urls": ["https://*"]
+  }
+}
