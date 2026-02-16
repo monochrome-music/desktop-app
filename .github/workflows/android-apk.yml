@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-android:
+  build:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -65,8 +65,38 @@ jobs:
       - name: Build Android APK
         run: npm run tauri -- android build --apk
 
-      - name: Upload APK artifact
+      - name: Upload unsigned APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk-unsigned
+          path: src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk
+
+  sign:
+    runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      contents: read
+
+    steps:
+      - name: Download unsigned APK
+        uses: actions/download-artifact@v4
+        with:
+          name: android-apk-unsigned
+
+      - name: Sign APK
+        uses: r0adkll/sign-android-release@v1
+        id: sign_apk
+        with:
+          releaseDirectory: .
+          signingKeyBase64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          alias: ${{ secrets.ANDROID_KEY_ALIAS }}
+          keyStorePassword: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          keyPassword: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        env:
+          BUILD_TOOLS_VERSION: "35.0.0"
+
+      - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
           name: android-apk
-          path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          path: ${{ steps.sign_apk.outputs.signedReleaseFile }}
