@@ -5,7 +5,7 @@
     window.__monochromeSafeAreaInsetsAndroidInit = true;
 
     const STYLE_ID = 'monochrome-safe-area-style';
-    const REFRESH_DELAYS = [0, 80, 200, 400];
+    const REFRESH_DELAYS = [0];
     const TAURI_CHECK_INTERVAL = 50;
     const TAURI_CHECK_MAX_ATTEMPTS = 200;
     const TAURI_PLUGIN_COMMAND = 'plugin:safe-area-insets|get_insets';
@@ -13,6 +13,7 @@
     let refreshTimers = [];
     let lastInsets = null;
     let tauriReadyPromise = null;
+    let isUnloading = false;
 
     function ensureViewportFit() {
         const head = document.head || document.getElementsByTagName('head')[0] || null;
@@ -172,12 +173,15 @@
     }
 
     async function getNativeInsets() {
+        if (isUnloading) return null;
         const ready = await waitForTauri();
+        if (isUnloading) return null;
         if (!ready) return null;
         const core = getTauriCore();
         if (!core) return null;
         try {
             const result = await core.invoke(TAURI_PLUGIN_COMMAND);
+            if (isUnloading) return null;
             if (!result) return null;
             return normalizeInsets(result);
         } catch (_error) {
@@ -215,6 +219,8 @@
     }
 
     function scheduleRefresh() {
+        if (isUnloading) return;
+        if (document.visibilityState === 'hidden') return;
         refreshToken += 1;
         const token = refreshToken;
         clearRefreshTimers();
@@ -241,6 +247,14 @@
         window.addEventListener('resize', scheduleRefresh);
         window.addEventListener('orientationchange', scheduleRefresh);
         document.addEventListener('visibilitychange', scheduleRefresh);
+        window.addEventListener('beforeunload', () => {
+            isUnloading = true;
+            clearRefreshTimers();
+        });
+        window.addEventListener('unload', () => {
+            isUnloading = true;
+            clearRefreshTimers();
+        });
     }
 
     init();

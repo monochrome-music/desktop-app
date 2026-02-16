@@ -27,15 +27,29 @@
     target.dispatchEvent(new KeyboardEvent('keyup', opts));
   }
 
+  function clickControlButton(id) {
+    var btn = document.getElementById(id);
+    if (!btn) return false;
+    try {
+      btn.click();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   function nextTrack() {
+    if (clickControlButton('next-btn')) return;
     dispatchKey('ArrowRight', 'ArrowRight', 39, { shiftKey: true });
   }
 
   function prevTrack() {
+    if (clickControlButton('prev-btn')) return;
     dispatchKey('ArrowLeft', 'ArrowLeft', 37, { shiftKey: true });
   }
 
   function togglePlayPause() {
+    if (clickControlButton('fs-play-pause-btn')) return;
     dispatchKey(' ', 'Space', 32);
   }
 
@@ -135,8 +149,14 @@
     artworkUrl: null,
   };
 
+  var isUnloading = false;
+  var androidMediaActionUnlisten = null;
+  var androidMediaActionListenerPending = false;
+
   function sendToPlugin(payload) {
+    if (isUnloading) return;
     waitForTauri().then(function (ready) {
+      if (isUnloading) return;
       if (!ready) return;
       var core = getTauriCore();
       if (!core) return;
@@ -237,13 +257,23 @@
   // Android media action listener
   // ---------------------------------------------------------------------------
 
+  function cleanupAndroidMediaActionListener() {
+    if (typeof androidMediaActionUnlisten !== 'function') return;
+    try {
+      androidMediaActionUnlisten();
+    } catch (_) {}
+    androidMediaActionUnlisten = null;
+  }
+
   function listenAndroidMediaActions() {
     if (!isAndroid) return;
+    if (androidMediaActionUnlisten || androidMediaActionListenerPending) return;
     waitForTauri().then(function (ready) {
       if (!ready) return;
       var core = getTauriCore();
       if (!core || typeof core.addPluginListener !== 'function') return;
-      core.addPluginListener(ANDROID_PLUGIN, 'media_action', function (event) {
+      androidMediaActionListenerPending = true;
+      var listener = core.addPluginListener(ANDROID_PLUGIN, 'media_action', function (event) {
         var action = event && event.action;
         if (!action) return;
         console.log('[MediaSession] \u2190', action + (event.seekPosition != null ? ' @ ' + event.seekPosition + 's' : ''));
@@ -256,6 +286,26 @@
           if (audio && event.seekPosition != null) audio.currentTime = event.seekPosition;
         }
       });
+
+      if (listener && typeof listener.then === 'function') {
+        listener.then(
+          function (unlisten) {
+            if (typeof unlisten === 'function') {
+              androidMediaActionUnlisten = unlisten;
+            }
+            androidMediaActionListenerPending = false;
+          },
+          function (err) {
+            androidMediaActionListenerPending = false;
+            console.warn('[MediaSession] addPluginListener failed:', err);
+          }
+        );
+      } else {
+        if (typeof listener === 'function') {
+          androidMediaActionUnlisten = listener;
+        }
+        androidMediaActionListenerPending = false;
+      }
     });
   }
 
@@ -327,4 +377,14 @@
   } else {
     attach();
   }
+
+  window.addEventListener('beforeunload', function () {
+    isUnloading = true;
+    cleanupAndroidMediaActionListener();
+  });
+
+  window.addEventListener('unload', function () {
+    isUnloading = true;
+    cleanupAndroidMediaActionListener();
+  });
 })();

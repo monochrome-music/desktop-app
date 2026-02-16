@@ -33,10 +33,16 @@ pub fn configure(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::W
 pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let source_url = crate::load_source_url(app.handle());
     let mut init_script = String::new();
+    init_script.push_str(include_str!("../tauri-defineproperty-guard.js"));
+    init_script.push('\n');
     init_script.push_str(include_str!("../google-auth-init.js"));
     init_script.push('\n');
     #[cfg(target_os = "android")]
     {
+        init_script.push_str(include_str!("../android-audio-workaround.js"));
+        init_script.push('\n');
+        init_script.push_str(include_str!("../android-audio-mode-settings.js"));
+        init_script.push('\n');
         init_script.push_str(include_str!("../android-download-init.js"));
         init_script.push('\n');
     }
