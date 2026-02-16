@@ -17,6 +17,7 @@ dependencies = [
  "tauri-plugin-fs",
  "tauri-plugin-global-shortcut",
  "tauri-plugin-google-auth",
+ "tauri-plugin-media-session",
  "tauri-plugin-media-toolkit",
  "tauri-plugin-notification",
  "tauri-plugin-opener",
@@ -4153,6 +4154,15 @@ dependencies = [
  "thiserror 2.0.18",
  "url",
  "uuid 1.20.0",
+]
+
+[[package]]
+name = "tauri-plugin-media-session"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "tauri",
+ "tauri-plugin",
 ]
 
 [[package]]

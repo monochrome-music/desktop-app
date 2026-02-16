@@ -6111,6 +6111,72 @@
           "markdownDescription": "Denies the sign_out command without any pre-configured scope."
         },
         {
+          "description": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `allow-initialize`\n- `allow-update-state`\n- `allow-update-timeline`\n- `allow-clear`\n- `allow-register-listener`",
+          "type": "string",
+          "const": "media-session:default",
+          "markdownDescription": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `allow-initialize`\n- `allow-update-state`\n- `allow-update-timeline`\n- `allow-clear`\n- `allow-register-listener`"
+        },
+        {
+          "description": "Enables the clear command without any pre-configured scope.",
+          "type": "string",
+          "const": "media-session:allow-clear",
+          "markdownDescription": "Enables the clear command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the initialize command without any pre-configured scope.",
+          "type": "string",
+          "const": "media-session:allow-initialize",
+          "markdownDescription": "Enables the initialize command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the register_listener command without any pre-configured scope.",
+          "type": "string",
+          "const": "media-session:allow-register-listener",
+          "markdownDescription": "Enables the register_listener command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the update_state command without any pre-configured scope.",
+          "type": "string",
+          "const": "media-session:allow-update-state",
+          "markdownDescription": "Enables the update_state command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the update_timeline command without any pre-configured scope.",
+          "type": "string",
+          "const": "media-session:allow-update-timeline",
+          "markdownDescription": "Enables the update_timeline command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the clear command without any pre-configured scope.",
+          "type": "string",
+          "const": "media-session:deny-clear",
+          "markdownDescription": "Denies the clear command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the initialize command without any pre-configured scope.",
+          "type": "string",
+          "const": "media-session:deny-initialize",
+          "markdownDescription": "Denies the initialize command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the register_listener command without any pre-configured scope.",
+          "type": "string",
+          "const": "media-session:deny-register-listener",
+          "markdownDescription": "Denies the register_listener command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the update_state command without any pre-configured scope.",
+          "type": "string",
+          "const": "media-session:deny-update-state",
+          "markdownDescription": "Denies the update_state command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the update_timeline command without any pre-configured scope.",
+          "type": "string",
+          "const": "media-session:deny-update-timeline",
+          "markdownDescription": "Denies the update_timeline command without any pre-configured scope."
+        },
+        {
           "description": "Default permissions for the Media Toolkit plugin - allows all media operations (editing, playback, analysis)\n#### This default permission set includes:\n\n- `allow-select-media-file`\n- `allow-get-media-info`\n- `allow-trim`\n- `allow-convert`\n- `allow-extract-audio`\n- `allow-play`\n- `allow-pause`\n- `allow-resume`\n- `allow-stop`\n- `allow-seek`\n- `allow-get-playback-status`\n- `allow-set-volume`\n- `allow-check-permission`\n- `allow-request-permission`\n- `allow-cleanup-cache`",
           "type": "string",
           "const": "media-toolkit:default",
