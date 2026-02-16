@@ -114,6 +114,12 @@
         }, 220);
     }
 
+    const isAndroid = /Android/i.test(navigator.userAgent || '');
+    const edgeSize = isAndroid ? 32 : 24;
+    const dragStartThreshold = isAndroid ? 8 : 10;
+    const maxVerticalDelta = isAndroid ? 60 : 40;
+    const useCapture = isAndroid;
+
     let swipeStartX = 0;
     let swipeStartY = 0;
     let swipeTracking = false;
@@ -121,10 +127,7 @@
     let sidebarWidth = 0;
     let startOffset = 0;
     let lastOffset = 0;
-    let draggingFromSidebar = false;
-    const edgeSize = 24;
-    const dragStartThreshold = 10;
-    const maxVerticalDelta = 40;
+    let overlayActive = false;
 
     window.addEventListener(
         'touchstart',
@@ -136,8 +139,16 @@
             const touch = event.touches[0];
             const isOpen = sidebar.classList.contains('is-open');
 
-            if (!isOpen && touch.clientX > edgeSize) return;
-            if (isOpen && !sidebar.contains(event.target)) return;
+            if (!isOpen) {
+                if (!isAndroid && touch.clientX > edgeSize) return;
+                if (isAndroid) {
+                    const openRegion = Math.max(1, Math.floor(window.innerWidth * 0.6));
+                    if (touch.clientX > openRegion) return;
+                }
+            }
+            if (isOpen && !sidebar.contains(event.target) && !overlay.contains(event.target)) {
+                return;
+            }
 
             sidebarWidth = Math.max(1, sidebar.getBoundingClientRect().width);
             swipeTracking = true;
@@ -146,14 +157,9 @@
             swipeStartY = touch.clientY;
             startOffset = isOpen ? 0 : -sidebarWidth;
             lastOffset = startOffset;
-            draggingFromSidebar = isOpen;
-
-            overlay.classList.add('is-visible');
-            overlay.style.opacity = isOpen ? '1' : '0';
-            sidebar.style.transition = 'none';
-            overlay.style.transition = 'none';
+            overlayActive = isOpen;
         },
-        { passive: true },
+        { passive: true, capture: useCapture },
     );
 
     window.addEventListener(
@@ -173,19 +179,26 @@
                     return;
                 }
                 if (Math.abs(deltaX) < dragStartThreshold) return;
+                if (Math.abs(deltaX) < Math.abs(deltaY)) return;
                 dragging = true;
+                overlay.classList.add('is-visible');
+                overlay.style.transition = 'none';
+                sidebar.style.transition = 'none';
+                if (!overlayActive) {
+                    overlay.style.opacity = '0';
+                    overlayActive = true;
+                }
             }
 
             if (dragging) {
                 event.preventDefault();
                 const nextOffset = startOffset + deltaX;
                 const clamped = Math.min(0, Math.max(-sidebarWidth, nextOffset));
-                if (!draggingFromSidebar && clamped < -sidebarWidth) return;
                 lastOffset = clamped;
                 setDrawerPosition(sidebar, overlay, clamped, sidebarWidth);
             }
         },
-        { passive: false },
+        { passive: false, capture: useCapture },
     );
 
     function endDrag() {
@@ -211,6 +224,6 @@
         dragging = false;
     }
 
-    window.addEventListener('touchend', endDrag, { passive: true });
-    window.addEventListener('touchcancel', endDrag, { passive: true });
+    window.addEventListener('touchend', endDrag, { passive: true, capture: useCapture });
+    window.addEventListener('touchcancel', endDrag, { passive: true, capture: useCapture });
 })();

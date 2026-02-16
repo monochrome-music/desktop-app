@@ -71,6 +71,9 @@ mod desktop;
 #[cfg(mobile)]
 mod mobile;
 
+#[cfg(target_os = "android")]
+mod android_download;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default()
@@ -83,6 +86,9 @@ pub fn run() {
         )
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_google_auth::init());
+
+    #[cfg(target_os = "android")]
+    let builder = builder.plugin(tauri_plugin_safe_area_insets::init());
 
     #[cfg(desktop)]
     let builder = desktop::configure(builder);

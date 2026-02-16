@@ -32,3 +32,4 @@ Thumbs.db
 
 # Cargo lock is tracked (don't ignore)
 # Tauri gen/schemas is tracked (don't ignore)
+.idea
