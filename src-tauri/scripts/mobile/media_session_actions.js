@@ -76,11 +76,10 @@
   }
 
   // ---------------------------------------------------------------------------
-  // W3C Media Session (iOS WKWebView lock screen controls)
+  // Media Session
   //
-  // Handlers must be (re-)registered every time audio starts playing because
-  // WKWebView may reset them when the media session changes, and the host web
-  // app may also overwrite them when it updates its own metadata.
+  // Mobile webviews may reset action handlers as playback state changes.
+  // We register eagerly and re-register whenever playback or metadata changes.
   // ---------------------------------------------------------------------------
 
   function registerMediaSessionHandlers() {
@@ -152,6 +151,51 @@
   var isUnloading = false;
   var androidMediaActionUnlisten = null;
   var androidMediaActionListenerPending = false;
+  var detailsObserver = null;
+  var queueObserver = null;
+  var observeRetryTimer = null;
+  var trackedListeners = [];
+
+  function addTrackedListener(target, type, handler, options) {
+    if (!target || typeof target.addEventListener !== 'function') return;
+    target.addEventListener(type, handler, options);
+    trackedListeners.push(function () {
+      try {
+        target.removeEventListener(type, handler, options);
+      } catch (_) {}
+    });
+  }
+
+  function clearTrackedListeners() {
+    if (!trackedListeners.length) return;
+    for (var i = 0; i < trackedListeners.length; i += 1) {
+      try {
+        trackedListeners[i]();
+      } catch (_) {}
+    }
+    trackedListeners = [];
+  }
+
+  function clearObserveRetryTimer() {
+    if (!observeRetryTimer) return;
+    window.clearTimeout(observeRetryTimer);
+    observeRetryTimer = null;
+  }
+
+  function disconnectObservers() {
+    if (detailsObserver) {
+      try {
+        detailsObserver.disconnect();
+      } catch (_) {}
+      detailsObserver = null;
+    }
+    if (queueObserver) {
+      try {
+        queueObserver.disconnect();
+      } catch (_) {}
+      queueObserver = null;
+    }
+  }
 
   function sendToPlugin(payload) {
     if (isUnloading) return;
@@ -172,6 +216,7 @@
 
   function sendTrackInfo() {
     if (!isAndroid) return;
+    if (isUnloading) return;
     var audio = getAudio();
     var title = readText('.track-info .details .title') || readText('#fullscreen-track-title');
     var artist = readText('.track-info .details .artist') || readText('#fullscreen-track-artist');
@@ -212,6 +257,7 @@
 
   function sendPlaybackState() {
     if (!isAndroid) return;
+    if (isUnloading) return;
     var audio = getAudio();
     if (!audio) return;
     var isPlaying = !audio.paused && !audio.ended;
@@ -223,6 +269,7 @@
 
   function sendSeekPosition() {
     if (!isAndroid) return;
+    if (isUnloading) return;
     var audio = getAudio();
     if (!audio) return;
     var pos = Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
@@ -231,6 +278,7 @@
 
   function sendDuration() {
     if (!isAndroid) return;
+    if (isUnloading) return;
     var audio = getAudio();
     if (!audio) return;
     var duration = Number.isFinite(audio.duration) ? audio.duration : null;
@@ -241,6 +289,7 @@
 
   function sendCanNext() {
     if (!isAndroid) return;
+    if (isUnloading) return;
     var canNext = true;
     var queueList = document.getElementById('queue-list');
     if (queueList) {
@@ -267,8 +316,10 @@
 
   function listenAndroidMediaActions() {
     if (!isAndroid) return;
+    if (isUnloading) return;
     if (androidMediaActionUnlisten || androidMediaActionListenerPending) return;
     waitForTauri().then(function (ready) {
+      if (isUnloading) return;
       if (!ready) return;
       var core = getTauriCore();
       if (!core || typeof core.addPluginListener !== 'function') return;
@@ -317,14 +368,17 @@
   var observingQueue = false;
 
   function observeDOM() {
+    if (isUnloading) return;
     if (!observingDetails) {
       var details = document.querySelector('.now-playing-bar .track-info .details');
       if (details) {
         observingDetails = true;
-        new MutationObserver(function () {
+        detailsObserver = new MutationObserver(function () {
+          if (isUnloading) return;
           registerMediaSessionHandlers();
           sendTrackInfo();
-        }).observe(details, { childList: true, subtree: true, characterData: true });
+        });
+        detailsObserver.observe(details, { childList: true, subtree: true, characterData: true });
       }
     }
 
@@ -332,7 +386,11 @@
       var queueList = document.getElementById('queue-list');
       if (queueList) {
         observingQueue = true;
-        new MutationObserver(function () { sendCanNext(); }).observe(queueList, {
+        queueObserver = new MutationObserver(function () {
+          if (isUnloading) return;
+          sendCanNext();
+        });
+        queueObserver.observe(queueList, {
           childList: true,
           subtree: true,
           attributes: true,
@@ -343,21 +401,23 @@
 
     // Retry until both observers are attached
     if (!observingDetails || !observingQueue) {
-      window.setTimeout(observeDOM, 1000);
+      clearObserveRetryTimer();
+      observeRetryTimer = window.setTimeout(observeDOM, 1000);
     }
   }
 
   function attach() {
+    if (isUnloading) return;
     var audio = getAudio();
     if (audio) {
-      audio.addEventListener('play', registerMediaSessionHandlers);
-      audio.addEventListener('loadedmetadata', registerMediaSessionHandlers);
-      audio.addEventListener('play', sendPlaybackState);
-      audio.addEventListener('pause', sendPlaybackState);
-      audio.addEventListener('ended', sendPlaybackState);
-      audio.addEventListener('loadedmetadata', sendDuration);
-      audio.addEventListener('durationchange', sendDuration);
-      audio.addEventListener('seeked', sendSeekPosition);
+      addTrackedListener(audio, 'play', registerMediaSessionHandlers);
+      addTrackedListener(audio, 'loadedmetadata', registerMediaSessionHandlers);
+      addTrackedListener(audio, 'play', sendPlaybackState);
+      addTrackedListener(audio, 'pause', sendPlaybackState);
+      addTrackedListener(audio, 'ended', sendPlaybackState);
+      addTrackedListener(audio, 'loadedmetadata', sendDuration);
+      addTrackedListener(audio, 'durationchange', sendDuration);
+      addTrackedListener(audio, 'seeked', sendSeekPosition);
     }
 
     if (isAndroid) {
@@ -378,13 +438,15 @@
     attach();
   }
 
-  window.addEventListener('beforeunload', function () {
+  function startShutdownCleanup() {
+    if (isUnloading) return;
     isUnloading = true;
+    clearObserveRetryTimer();
+    clearTrackedListeners();
+    disconnectObservers();
     cleanupAndroidMediaActionListener();
-  });
+  }
 
-  window.addEventListener('unload', function () {
-    isUnloading = true;
-    cleanupAndroidMediaActionListener();
-  });
+  window.addEventListener('beforeunload', startShutdownCleanup);
+  window.addEventListener('unload', startShutdownCleanup);
 })();

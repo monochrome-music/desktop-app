@@ -114,11 +114,18 @@
         }, 220);
     }
 
-    const isAndroid = /Android/i.test(navigator.userAgent || '');
-    const edgeSize = isAndroid ? 32 : 24;
-    const dragStartThreshold = isAndroid ? 8 : 10;
-    const maxVerticalDelta = isAndroid ? 60 : 40;
-    const useCapture = isAndroid;
+    const swipeConfig = window.__monochromeSwipeGestureConfig || {};
+    const edgeSize = Number.isFinite(swipeConfig.edgeSize) ? swipeConfig.edgeSize : 24;
+    const dragStartThreshold = Number.isFinite(swipeConfig.dragStartThreshold)
+        ? swipeConfig.dragStartThreshold
+        : 10;
+    const maxVerticalDelta = Number.isFinite(swipeConfig.maxVerticalDelta)
+        ? swipeConfig.maxVerticalDelta
+        : 40;
+    const useCapture = Boolean(swipeConfig.useCapture);
+    const openRegionRatio = Number.isFinite(swipeConfig.openRegionRatio)
+        ? swipeConfig.openRegionRatio
+        : null;
 
     let swipeStartX = 0;
     let swipeStartY = 0;
@@ -140,10 +147,11 @@
             const isOpen = sidebar.classList.contains('is-open');
 
             if (!isOpen) {
-                if (!isAndroid && touch.clientX > edgeSize) return;
-                if (isAndroid) {
-                    const openRegion = Math.max(1, Math.floor(window.innerWidth * 0.6));
+                if (openRegionRatio !== null) {
+                    const openRegion = Math.max(1, Math.floor(window.innerWidth * openRegionRatio));
                     if (touch.clientX > openRegion) return;
+                } else if (touch.clientX > edgeSize) {
+                    return;
                 }
             }
             if (isOpen && !sidebar.contains(event.target) && !overlay.contains(event.target)) {

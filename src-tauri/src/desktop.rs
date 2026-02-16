@@ -266,11 +266,13 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let app_handle = app.handle().clone();
     let source_url = crate::load_source_url(app.handle());
     let mut init_script = String::new();
-    init_script.push_str(include_str!("../scripts/desktop/discord_init.js"));
+    init_script.push_str(include_str!(
+        "../scripts/desktop/discord_presence_bridge.js"
+    ));
     init_script.push('\n');
-    init_script.push_str(include_str!("../scripts/mobile/external_links.js"));
+    init_script.push_str(include_str!("../scripts/mobile/external_link_router.js"));
     init_script.push('\n');
-    let fallback_script = include_str!("../scripts/mobile/url_error_fallback.js")
+    let fallback_script = include_str!("../scripts/mobile/source_url_fallback.js")
         .replace("__EXPECTED_URL__", &source_url)
         .replace("__DEFAULT_URL__", crate::DEFAULT_SOURCE_URL);
     init_script.push_str(&fallback_script);
