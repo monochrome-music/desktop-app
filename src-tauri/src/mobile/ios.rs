@@ -37,7 +37,7 @@ fn configure_audio_session() {
 // ---------------------------------------------------------------------------
 //
 // Lock screen controls (next/previous track) are handled entirely via the
-// W3C Media Session API from JavaScript (media-remote-init.js).
+// W3C Media Session API from JavaScript (media_remote_init.js).
 //
 // WKWebView runs audio in a separate process and takes exclusive control of
 // MPRemoteCommandCenter / MPNowPlayingInfoCenter once playback starts,

@@ -35,7 +35,7 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let mut init_script = String::new();
     init_script.push_str(include_str!("../tauri-defineproperty-guard.js"));
     init_script.push('\n');
-    init_script.push_str(include_str!("../scripts/mobile/google-auth-init.js"));
+    init_script.push_str(include_str!("../scripts/mobile/google_auth_init.js"));
     init_script.push('\n');
     #[cfg(target_os = "android")]
     {
@@ -43,34 +43,32 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         init_script.push('\n');
         init_script.push_str(include_str!("../android-audio-mode-settings.js"));
         init_script.push('\n');
-        init_script.push_str(include_str!("../scripts/android/android-download-init.js"));
+        init_script.push_str(include_str!("../scripts/android/download_init.js"));
         init_script.push('\n');
     }
     #[cfg(target_os = "ios")]
     {
-        init_script.push_str(include_str!("../scripts/ios/ios-download-init.js"));
+        init_script.push_str(include_str!("../scripts/ios/download_init.js"));
         init_script.push('\n');
     }
-    init_script.push_str(include_str!("../scripts/mobile/mobile-download-init.js"));
+    init_script.push_str(include_str!("../scripts/mobile/download_init.js"));
     init_script.push('\n');
-    init_script.push_str(include_str!("../scripts/mobile/external-links.js"));
+    init_script.push_str(include_str!("../scripts/mobile/external_links.js"));
     init_script.push('\n');
-    init_script.push_str(include_str!("../scripts/mobile/mobile-gestures.js"));
+    init_script.push_str(include_str!("../scripts/mobile/gestures.js"));
     init_script.push('\n');
     #[cfg(target_os = "android")]
     {
-        init_script.push_str(include_str!(
-            "../scripts/android/safe-area-insets-android.js"
-        ));
+        init_script.push_str(include_str!("../scripts/android/safe_area_insets.js"));
         init_script.push('\n');
     }
-    init_script.push_str(include_str!("../scripts/mobile/media-remote-init.js"));
+    init_script.push_str(include_str!("../scripts/mobile/media_remote_init.js"));
     init_script.push('\n');
-    let settings_script = include_str!("../scripts/mobile/source-url-settings.js")
+    let settings_script = include_str!("../scripts/mobile/source_url_settings.js")
         .replace("__DEFAULT_URL__", crate::DEFAULT_SOURCE_URL);
     init_script.push_str(&settings_script);
     init_script.push('\n');
-    let fallback_script = include_str!("../scripts/mobile/url-error-fallback.js")
+    let fallback_script = include_str!("../scripts/mobile/url_error_fallback.js")
         .replace("__EXPECTED_URL__", &source_url)
         .replace("__DEFAULT_URL__", crate::DEFAULT_SOURCE_URL);
     init_script.push_str(&fallback_script);
