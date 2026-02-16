@@ -87,7 +87,7 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     .initialization_script(init_script)
     .build()?;
 
-    #[cfg(target_os = "android")]
+    #[cfg(mobile)]
     {
         use tauri_plugin_media_session::MediaSessionExt;
 

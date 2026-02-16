@@ -1,0 +1,8 @@
+{
+  "identifier": "android-capability",
+  "windows": ["main"],
+  "platforms": ["android"],
+  "permissions": [
+    "safe-area-insets:default"
+  ]
+}

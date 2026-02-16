@@ -36,16 +36,9 @@ fn configure_audio_session() {
 // Entry point
 // ---------------------------------------------------------------------------
 //
-// Lock screen controls (next/previous track) are handled entirely via the
-// W3C Media Session API from JavaScript (media_session_actions.js).
-//
-// WKWebView runs audio in a separate process and takes exclusive control of
-// MPRemoteCommandCenter / MPNowPlayingInfoCenter once playback starts,
-// overriding any native handlers set from Rust.  The Media Session API is
-// the only mechanism WKWebView honours for lock screen buttons.
-//
-// The only native setup we need is AVAudioSession to enable background
-// playback.
+// The media-session plugin drives native lock screen metadata/controls.
+// We still configure AVAudioSession early so background playback stays enabled
+// even before the first JS -> plugin state sync happens.
 
 pub fn setup(_app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     configure_audio_session();

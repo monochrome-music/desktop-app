@@ -10,7 +10,10 @@
   // user pressed the keys.
   // ---------------------------------------------------------------------------
 
-  var isAndroid = /Android/i.test(navigator.userAgent || '');
+  var userAgent = navigator.userAgent || '';
+  var isAndroid = /Android/i.test(userAgent);
+  var isIOS = /iP(ad|hone|od)/i.test(userAgent) || (/Macintosh/i.test(userAgent) && navigator.maxTouchPoints > 1);
+  var isNativeMobile = isAndroid || isIOS;
 
   function dispatchKey(key, code, keyCode, mods) {
     var opts = {
@@ -99,7 +102,7 @@
   // ---------------------------------------------------------------------------
 
   var tauriReadyPromise = null;
-  var ANDROID_PLUGIN = 'media-session';
+  var MEDIA_SESSION_PLUGIN = 'media-session';
 
   function getTauriCore() {
     var tauri = window.__TAURI__;
@@ -132,7 +135,7 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Android media session — delta-based state sync
+  // Native mobile media session — delta-based state sync
   //
   // The plugin uses merge semantics: omitted fields keep their previous value.
   // We only send what actually changed to minimize payload size.
@@ -143,17 +146,23 @@
     artist: null,
     album: null,
     duration: null,
+    position: null,
+    playbackSpeed: null,
     isPlaying: null,
+    canPrev: null,
     canNext: null,
+    canSeek: null,
     artworkUrl: null,
   };
 
   var isUnloading = false;
-  var androidMediaActionUnlisten = null;
-  var androidMediaActionListenerPending = false;
+  var nativeMediaActionUnlisten = null;
+  var nativeMediaActionListenerPending = false;
   var detailsObserver = null;
   var queueObserver = null;
   var observeRetryTimer = null;
+  var audioAttachPollTimer = null;
+  var timelineTickTimer = null;
   var trackedListeners = [];
 
   function addTrackedListener(target, type, handler, options) {
@@ -182,6 +191,88 @@
     observeRetryTimer = null;
   }
 
+  function clearAudioAttachPollTimer() {
+    if (!audioAttachPollTimer) return;
+    window.clearInterval(audioAttachPollTimer);
+    audioAttachPollTimer = null;
+  }
+
+  function clearTimelineTickTimer() {
+    if (!timelineTickTimer) return;
+    window.clearInterval(timelineTickTimer);
+    timelineTickTimer = null;
+  }
+
+  function getPlaybackSpeed(audio) {
+    if (!audio) return 1;
+    var speed = Number.isFinite(audio.playbackRate) ? audio.playbackRate : 1;
+    if (speed <= 0) return 1;
+    return speed;
+  }
+
+  function sendTimelineToPlugin(payload) {
+    if (isUnloading) return;
+    waitForTauri().then(function (ready) {
+      if (isUnloading) return;
+      if (!ready) return;
+      var core = getTauriCore();
+      if (!core) return;
+      core.invoke('plugin:' + MEDIA_SESSION_PLUGIN + '|update_timeline', payload).then(
+        function () {},
+        function (err) { console.warn('[MediaSession] update_timeline failed:', err); }
+      );
+    });
+  }
+
+  function startTimelineTickTimer() {
+    if (timelineTickTimer) return;
+    timelineTickTimer = window.setInterval(function () {
+      if (isUnloading) return;
+      var audio = getAudio();
+      if (!audio || audio.paused || audio.ended) return;
+      var pos = Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
+      var duration = Number.isFinite(audio.duration) ? audio.duration : null;
+      var playbackSpeed = getPlaybackSpeed(audio);
+      sent.position = pos;
+      sent.playbackSpeed = playbackSpeed;
+      if (duration != null) sent.duration = duration;
+      sendTimelineToPlugin({
+        position: pos,
+        duration: duration,
+        playbackSpeed: playbackSpeed,
+      });
+    }, 1000);
+  }
+
+  function attachAudioListeners(audio) {
+    if (!audio) return;
+    if (audio.__mediaSessionBridgeAttached) return;
+    audio.__mediaSessionBridgeAttached = true;
+
+    addTrackedListener(audio, 'play', registerMediaSessionHandlers);
+    addTrackedListener(audio, 'loadedmetadata', registerMediaSessionHandlers);
+    addTrackedListener(audio, 'play', sendPlaybackState);
+    addTrackedListener(audio, 'pause', sendPlaybackState);
+    addTrackedListener(audio, 'ended', sendPlaybackState);
+    addTrackedListener(audio, 'loadedmetadata', sendDuration);
+    addTrackedListener(audio, 'durationchange', sendDuration);
+    addTrackedListener(audio, 'seeked', sendSeekPosition);
+
+    if (isNativeMobile) {
+      sendDuration();
+      sendPlaybackState();
+      sendSeekPosition();
+    }
+  }
+
+  function startAudioAttachPoll() {
+    if (audioAttachPollTimer) return;
+    audioAttachPollTimer = window.setInterval(function () {
+      if (isUnloading) return;
+      attachAudioListeners(getAudio());
+    }, 1000);
+  }
+
   function disconnectObservers() {
     if (detailsObserver) {
       try {
@@ -207,7 +298,7 @@
       var logFields = {};
       for (var k in payload) { logFields[k] = payload[k]; }
       console.log('[MediaSession] \u2192', JSON.stringify(logFields));
-      core.invoke('plugin:' + ANDROID_PLUGIN + '|update_state', payload).then(
+      core.invoke('plugin:' + MEDIA_SESSION_PLUGIN + '|update_state', payload).then(
         function () {},
         function (err) { console.warn('[MediaSession] update_state failed:', err); }
       );
@@ -215,13 +306,14 @@
   }
 
   function sendTrackInfo() {
-    if (!isAndroid) return;
+    if (!isNativeMobile) return;
     if (isUnloading) return;
     var audio = getAudio();
     var title = readText('.track-info .details .title') || readText('#fullscreen-track-title');
     var artist = readText('.track-info .details .artist') || readText('#fullscreen-track-artist');
     var album = readText('.track-info .details .album');
     var duration = audio && Number.isFinite(audio.duration) ? audio.duration : null;
+    var playbackSpeed = getPlaybackSpeed(audio);
     var img = document.querySelector('.now-playing-bar img.cover');
     var artworkUrl = img && img.src ? img.src : null;
 
@@ -245,39 +337,87 @@
     // (sendPlaybackState skips when isPlaying hasn't changed, e.g. playing → playing)
     if (trackChanged) {
       payload.position = 0;
+      sent.position = 0;
       sent.isPlaying = null;
+      changed = true;
     }
 
     var isPlaying = audio ? (!audio.paused && !audio.ended) : false;
-    if (isPlaying !== sent.isPlaying) { payload.isPlaying = isPlaying; sent.isPlaying = isPlaying; }
-    if (!trackChanged && audio) { payload.position = Number.isFinite(audio.currentTime) ? audio.currentTime : 0; }
+    if (isPlaying !== sent.isPlaying) {
+      payload.isPlaying = isPlaying;
+      sent.isPlaying = isPlaying;
+      changed = true;
+    }
+
+    if (playbackSpeed !== sent.playbackSpeed) {
+      payload.playbackSpeed = playbackSpeed;
+      sent.playbackSpeed = playbackSpeed;
+      changed = true;
+    }
+
+    if (!trackChanged && audio) {
+      var pos = Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
+      if (sent.position == null || Math.abs(pos - sent.position) >= 0.5) {
+        payload.position = pos;
+        sent.position = pos;
+        changed = true;
+      }
+    }
+
+    if (sent.canSeek !== true) {
+      payload.canSeek = true;
+      sent.canSeek = true;
+      changed = true;
+    }
+
+    if (isPlaying) {
+      startTimelineTickTimer();
+    } else {
+      clearTimelineTickTimer();
+    }
 
     if (changed) sendToPlugin(payload);
   }
 
   function sendPlaybackState() {
-    if (!isAndroid) return;
+    if (!isNativeMobile) return;
     if (isUnloading) return;
     var audio = getAudio();
     if (!audio) return;
     var isPlaying = !audio.paused && !audio.ended;
-    if (isPlaying === sent.isPlaying) return;
+    var playbackSpeed = getPlaybackSpeed(audio);
+    var stateChanged = isPlaying !== sent.isPlaying;
+    var speedChanged = playbackSpeed !== sent.playbackSpeed;
+    if (!stateChanged && !speedChanged) return;
+
     sent.isPlaying = isPlaying;
+    sent.playbackSpeed = playbackSpeed;
     var pos = Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
-    sendToPlugin({ isPlaying: isPlaying, position: pos });
+    sent.position = pos;
+
+    if (isPlaying) {
+      startTimelineTickTimer();
+    } else {
+      clearTimelineTickTimer();
+    }
+
+    sendToPlugin({ isPlaying: isPlaying, position: pos, playbackSpeed: playbackSpeed });
   }
 
   function sendSeekPosition() {
-    if (!isAndroid) return;
+    if (!isNativeMobile) return;
     if (isUnloading) return;
     var audio = getAudio();
     if (!audio) return;
     var pos = Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
-    sendToPlugin({ position: pos });
+    var playbackSpeed = getPlaybackSpeed(audio);
+    sent.position = pos;
+    sent.playbackSpeed = playbackSpeed;
+    sendToPlugin({ position: pos, playbackSpeed: playbackSpeed });
   }
 
   function sendDuration() {
-    if (!isAndroid) return;
+    if (!isNativeMobile) return;
     if (isUnloading) return;
     var audio = getAudio();
     if (!audio) return;
@@ -288,7 +428,7 @@
   }
 
   function sendCanNext() {
-    if (!isAndroid) return;
+    if (!isNativeMobile) return;
     if (isUnloading) return;
     var canNext = true;
     var queueList = document.getElementById('queue-list');
@@ -296,35 +436,37 @@
       var playing = queueList.querySelector('.queue-track-item.playing');
       if (playing) canNext = !!playing.nextElementSibling;
     }
-    if (canNext === sent.canNext) return;
+    var shouldSendCanPrev = sent.canPrev !== true;
+    if (canNext === sent.canNext && !shouldSendCanPrev) return;
+    sent.canPrev = true;
     sent.canNext = canNext;
     // canPrev always true (restart current track or go to previous — standard UX)
     sendToPlugin({ canPrev: true, canNext: canNext });
   }
 
   // ---------------------------------------------------------------------------
-  // Android media action listener
+  // Native media action listener
   // ---------------------------------------------------------------------------
 
-  function cleanupAndroidMediaActionListener() {
-    if (typeof androidMediaActionUnlisten !== 'function') return;
+  function cleanupNativeMediaActionListener() {
+    if (typeof nativeMediaActionUnlisten !== 'function') return;
     try {
-      androidMediaActionUnlisten();
+      nativeMediaActionUnlisten();
     } catch (_) {}
-    androidMediaActionUnlisten = null;
+    nativeMediaActionUnlisten = null;
   }
 
-  function listenAndroidMediaActions() {
-    if (!isAndroid) return;
+  function listenNativeMediaActions() {
+    if (!isNativeMobile) return;
     if (isUnloading) return;
-    if (androidMediaActionUnlisten || androidMediaActionListenerPending) return;
+    if (nativeMediaActionUnlisten || nativeMediaActionListenerPending) return;
     waitForTauri().then(function (ready) {
       if (isUnloading) return;
       if (!ready) return;
       var core = getTauriCore();
       if (!core || typeof core.addPluginListener !== 'function') return;
-      androidMediaActionListenerPending = true;
-      var listener = core.addPluginListener(ANDROID_PLUGIN, 'media_action', function (event) {
+      nativeMediaActionListenerPending = true;
+      var listener = core.addPluginListener(MEDIA_SESSION_PLUGIN, 'media_action', function (event) {
         var action = event && event.action;
         if (!action) return;
         console.log('[MediaSession] \u2190', action + (event.seekPosition != null ? ' @ ' + event.seekPosition + 's' : ''));
@@ -342,21 +484,34 @@
         listener.then(
           function (unlisten) {
             if (typeof unlisten === 'function') {
-              androidMediaActionUnlisten = unlisten;
+              nativeMediaActionUnlisten = unlisten;
             }
-            androidMediaActionListenerPending = false;
+            nativeMediaActionListenerPending = false;
           },
           function (err) {
-            androidMediaActionListenerPending = false;
+            nativeMediaActionListenerPending = false;
             console.warn('[MediaSession] addPluginListener failed:', err);
           }
         );
       } else {
         if (typeof listener === 'function') {
-          androidMediaActionUnlisten = listener;
+          nativeMediaActionUnlisten = listener;
         }
-        androidMediaActionListenerPending = false;
+        nativeMediaActionListenerPending = false;
       }
+    });
+  }
+
+  function clearNativeMediaSession() {
+    if (!isNativeMobile) return;
+    waitForTauri().then(function (ready) {
+      if (!ready) return;
+      var core = getTauriCore();
+      if (!core) return;
+      core.invoke('plugin:' + MEDIA_SESSION_PLUGIN + '|clear').then(
+        function () {},
+        function (err) { console.warn('[MediaSession] clear failed:', err); }
+      );
     });
   }
 
@@ -369,6 +524,8 @@
 
   function observeDOM() {
     if (isUnloading) return;
+    attachAudioListeners(getAudio());
+
     if (!observingDetails) {
       var details = document.querySelector('.now-playing-bar .track-info .details');
       if (details) {
@@ -409,27 +566,18 @@
   function attach() {
     if (isUnloading) return;
     var audio = getAudio();
-    if (audio) {
-      addTrackedListener(audio, 'play', registerMediaSessionHandlers);
-      addTrackedListener(audio, 'loadedmetadata', registerMediaSessionHandlers);
-      addTrackedListener(audio, 'play', sendPlaybackState);
-      addTrackedListener(audio, 'pause', sendPlaybackState);
-      addTrackedListener(audio, 'ended', sendPlaybackState);
-      addTrackedListener(audio, 'loadedmetadata', sendDuration);
-      addTrackedListener(audio, 'durationchange', sendDuration);
-      addTrackedListener(audio, 'seeked', sendSeekPosition);
-    }
+    attachAudioListeners(audio);
+    startAudioAttachPoll();
 
-    if (isAndroid) {
+    if (isNativeMobile) {
       sendTrackInfo();
       sendCanNext();
-      observeDOM();
-      listenAndroidMediaActions();
+      listenNativeMediaActions();
       if (audio && !audio.paused && !audio.ended) sendPlaybackState();
-    } else {
-      // Non-Android: still observe for W3C Media Session re-registration
-      observeDOM();
     }
+
+    // Keep observing for W3C Media Session re-registration and metadata changes
+    observeDOM();
   }
 
   if (document.readyState === 'loading') {
@@ -442,9 +590,12 @@
     if (isUnloading) return;
     isUnloading = true;
     clearObserveRetryTimer();
+    clearAudioAttachPollTimer();
+    clearTimelineTickTimer();
     clearTrackedListeners();
     disconnectObservers();
-    cleanupAndroidMediaActionListener();
+    cleanupNativeMediaActionListener();
+    clearNativeMediaSession();
   }
 
   window.addEventListener('beforeunload', startShutdownCleanup);
