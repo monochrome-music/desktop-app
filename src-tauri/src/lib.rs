@@ -90,7 +90,7 @@ pub fn run() {
     #[cfg(target_os = "android")]
     let builder = builder.plugin(tauri_plugin_safe_area_insets::init());
 
-    #[cfg(target_os = "android")]
+    #[cfg(mobile)]
     let builder = builder.plugin(tauri_plugin_media_session::init());
 
     #[cfg(desktop)]

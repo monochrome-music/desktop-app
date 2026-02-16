@@ -28,6 +28,7 @@ cargo-clippy = []
 
 [target.'cfg(target_os = "ios")'.dependencies]
 objc = "0.2"
+tauri-plugin-media-session = "0.2"
 
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "0.21"
