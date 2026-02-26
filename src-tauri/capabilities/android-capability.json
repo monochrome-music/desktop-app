@@ -3,6 +3,7 @@
   "windows": ["main"],
   "platforms": ["android"],
   "permissions": [
-    "safe-area-insets:default"
+    "safe-area-insets:default",
+    "android-download"
   ]
 }

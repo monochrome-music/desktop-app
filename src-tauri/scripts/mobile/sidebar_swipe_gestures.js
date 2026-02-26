@@ -80,6 +80,11 @@
     disableZoom();
     blockZoomGestures();
 
+    function isPlayerFullscreen() {
+        const closeBtn = document.getElementById('close-fullscreen-cover-btn');
+        return !!(closeBtn && closeBtn.offsetParent !== null);
+    }
+
     function getSidebarElements() {
         const sidebar = document.querySelector('.sidebar');
         const overlay = document.getElementById('sidebar-overlay');
@@ -145,6 +150,11 @@
             const { sidebar, overlay } = elements;
             const touch = event.touches[0];
             const isOpen = sidebar.classList.contains('is-open');
+
+            // Block swipe to open if player is fullscreen
+            if (!isOpen && isPlayerFullscreen()) {
+                return;
+            }
 
             if (!isOpen) {
                 if (openRegionRatio !== null) {

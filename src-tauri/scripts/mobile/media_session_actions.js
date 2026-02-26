@@ -155,6 +155,92 @@
     artworkUrl: null,
   };
 
+  function stripTrackTitle(raw) {
+    return (raw || '').replace(/\s*\bHD\b\s*$/, '').trim();
+  }
+
+  function getCoverElement() {
+    var cover = document.querySelector('.now-playing-bar .cover');
+    if (!cover) return null;
+    var tag = (cover.tagName || '').toUpperCase();
+    if (tag === 'IMG' || tag === 'VIDEO') return cover;
+    if (cover.querySelector) {
+      var nested = cover.querySelector('img.cover, video.cover');
+      if (nested) return nested;
+    }
+    return null;
+  }
+
+  function getArtworkImageCandidate(cover) {
+    if (cover && (cover.tagName || '').toUpperCase() === 'IMG') {
+      return cover;
+    }
+
+    var selectors = [
+      '.now-playing-bar img.cover',
+      '#fullscreen-player img.cover',
+      '#queue-list .queue-track-item.playing img',
+      '.queue-track-item.playing img',
+      '.now-playing-bar img',
+      '#fullscreen-player img',
+    ];
+
+    for (var i = 0; i < selectors.length; i += 1) {
+      var img = document.querySelector(selectors[i]);
+      if (!img) continue;
+      var src = img.currentSrc || img.src || '';
+      if (src) return img;
+    }
+
+    return null;
+  }
+
+  function getVideoPosterUrl(video) {
+    if (!video) return null;
+    var posterUrl = video.poster || video.getAttribute('poster') || video.getAttribute('data-poster') || '';
+    return posterUrl || null;
+  }
+
+  function getCoverMediaUrl(cover) {
+    if (!cover) return null;
+    var tag = (cover.tagName || '').toUpperCase();
+    if (tag === 'IMG') {
+      var imageUrl = cover.currentSrc || cover.src || '';
+      return imageUrl || null;
+    }
+    if (tag === 'VIDEO') {
+      var posterUrl = cover.poster || cover.getAttribute('poster') || cover.getAttribute('data-poster') || '';
+      if (posterUrl) return posterUrl;
+      var sourceUrl = cover.currentSrc || cover.src || '';
+      if (sourceUrl) return sourceUrl;
+      if (cover.querySelector) {
+        var sourceNode = cover.querySelector('source[src]');
+        if (sourceNode && sourceNode.src) return sourceNode.src;
+      }
+    }
+    return null;
+  }
+
+  function getCoverFallbackUrl(cover) {
+    if (!cover) return null;
+    var image = getArtworkImageCandidate(cover);
+    var imageUrl = getCoverMediaUrl(image);
+    if (imageUrl && isImageArtworkUrl(imageUrl)) return imageUrl;
+
+    var tag = (cover.tagName || '').toUpperCase();
+    if (tag === 'VIDEO') {
+      var posterUrl = getVideoPosterUrl(cover);
+      if (posterUrl && isImageArtworkUrl(posterUrl)) return posterUrl;
+    }
+    return null;
+  }
+
+  function isImageArtworkUrl(url) {
+    if (!url || typeof url !== 'string') return false;
+    var normalized = url.split('?')[0].split('#')[0].toLowerCase();
+    return /\.(jpg|jpeg|png|webp|gif|bmp|avif)$/.test(normalized);
+  }
+
   var isUnloading = false;
   var nativeMediaActionUnlisten = null;
   var nativeMediaActionListenerPending = false;
@@ -319,16 +405,16 @@
 
   function disconnectObservers() {
     if (detailsObserver) {
-      try {
-        detailsObserver.disconnect();
-      } catch (_) {}
+      try { detailsObserver.disconnect(); } catch (_) {}
       detailsObserver = null;
     }
     if (queueObserver) {
-      try {
-        queueObserver.disconnect();
-      } catch (_) {}
+      try { queueObserver.disconnect(); } catch (_) {}
       queueObserver = null;
+    }
+    if (coverObserver) {
+      try { coverObserver.disconnect(); } catch (_) {}
+      coverObserver = null;
     }
   }
 
@@ -353,13 +439,13 @@
     if (!isNativeMobile) return;
     if (isUnloading) return;
     var audio = getAudio();
-    var title = readText('.track-info .details .title') || readText('#fullscreen-track-title');
+    var title = stripTrackTitle(readText('.track-info .details .title') || readText('#fullscreen-track-title'));
     var artist = readText('.track-info .details .artist') || readText('#fullscreen-track-artist');
     var album = readText('.track-info .details .album');
     var duration = getDuration(audio);
     var playbackSpeed = getPlaybackSpeed(audio);
-    var img = document.querySelector('.now-playing-bar img.cover');
-    var artworkUrl = img && img.src ? img.src : null;
+    var cover = getCoverElement();
+    var artworkUrl = getCoverFallbackUrl(cover) || '';
 
     var payload = {};
     var changed = false;
@@ -370,9 +456,8 @@
     if (album !== sent.album) { payload.album = album || null; sent.album = album; changed = true; }
     if (duration !== sent.duration) { payload.duration = duration; sent.duration = duration; changed = true; }
 
-    // Send artwork URL — the plugin downloads natively (no CORS)
     if (artworkUrl !== sent.artworkUrl) {
-      payload.artworkUrl = artworkUrl || '';
+      payload.artworkUrl = artworkUrl;
       sent.artworkUrl = artworkUrl;
       changed = true;
     }
@@ -565,6 +650,8 @@
 
   var observingDetails = false;
   var observingQueue = false;
+  var coverObserver = null;
+  var observingCover = false;
 
   function observeDOM() {
     if (isUnloading) return;
@@ -581,6 +668,45 @@
         });
         detailsObserver.observe(details, { childList: true, subtree: true, characterData: true });
         sendTrackInfo();
+      }
+    }
+
+    if (!observingCover) {
+      // Observe the stable .now-playing-bar container rather than img.cover directly.
+      // The web app may replace the img element entirely on track change (framework re-render),
+      // so watching the specific element misses the new one. Watching the parent with subtree
+      // catches both src attribute mutations and element replacements (childList).
+      var nowPlayingBar = document.querySelector('.now-playing-bar');
+      if (nowPlayingBar) {
+        observingCover = true;
+        coverObserver = new MutationObserver(function (mutations) {
+          if (isUnloading) return;
+          for (var i = 0; i < mutations.length; i++) {
+            var m = mutations[i];
+            if (m.type === 'attributes') {
+              if (m.target.classList && m.target.classList.contains('cover')) {
+                sendTrackInfo();
+                return;
+              }
+            } else if (m.type === 'childList' && m.addedNodes.length > 0) {
+              for (var j = 0; j < m.addedNodes.length; j++) {
+                var node = m.addedNodes[j];
+                if (node.nodeType !== 1) continue;
+                if ((node.classList && node.classList.contains('cover')) ||
+                    (node.querySelector && node.querySelector('img.cover, video.cover'))) {
+                  sendTrackInfo();
+                  return;
+                }
+              }
+            }
+          }
+        });
+        coverObserver.observe(nowPlayingBar, {
+          subtree: true,
+          attributes: true,
+          attributeFilter: ['src', 'poster'],
+          childList: true,
+        });
       }
     }
 
@@ -601,8 +727,8 @@
       }
     }
 
-    // Retry until both observers are attached
-    if (!observingDetails || !observingQueue) {
+    // Retry until all observers are attached
+    if (!observingDetails || !observingQueue || !observingCover) {
       clearObserveRetryTimer();
       observeRetryTimer = window.setTimeout(observeDOM, 1000);
     }

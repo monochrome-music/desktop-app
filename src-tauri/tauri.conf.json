@@ -1,7 +1,7 @@
 {
   "productName": "Monochrome",
   "version": "0.1.0",
-  "identifier": "com.monochrome.music.blacksigkill",
+  "identifier": "com.monochrome.music",
   "build": {
     "beforeDevCommand": "",
     "beforeBuildCommand": "",

@@ -10,7 +10,6 @@
     "media-toolkit:default",
     "google-auth:default",
     "media-session:default",
-    "android-download",
     "fs:allow-exists",
     "fs:allow-write-file",
     {
