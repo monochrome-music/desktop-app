@@ -83,14 +83,13 @@ pub fn run() {
                 WebviewUrl::App("index.html".into()),
             )
             .title("Monochrome Desktop")
-            .inner_size(800.0, 600.0)
+            .resizable(true)
+            .maximized(true)
             .on_new_window(move |url, features| {
                 let label = format!(
                     "popup-{}",
                     std::time::SystemTime::now()
-                        .duration_since(
-                            std::time::UNIX_EPOCH
-                        )
+                        .duration_since(std::time::UNIX_EPOCH)
                         .unwrap()
                         .as_nanos()
                 );
@@ -110,7 +109,6 @@ pub fn run() {
                 }
             })
             .build()?;
-
 
             let toggle_rpc = MenuItem::with_id(
                 app,

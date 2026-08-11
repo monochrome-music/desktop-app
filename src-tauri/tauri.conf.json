@@ -10,15 +10,6 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "windows": [
-      {
-        "title": "Monochrome Desktop",
-        "width": 800,
-        "height": 600,
-        "maximized": true,
-        "resizable": true
-      }
-    ],
     "security": {
       "csp": null
     }
