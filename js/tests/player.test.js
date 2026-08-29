@@ -1,7 +1,8 @@
 import { expect, test, describe, beforeEach, vi, afterEach } from 'vitest';
 import { Player } from '../player.js';
 import { REPEAT_MODE } from '../utils.js';
-import { audioEffectsSettings } from '../storage.js';
+import { audioEffectsSettings, crossfadeSettings, replayGainSettings } from '../storage.js';
+import { audioContextManager } from '../audio-context.js';
 
 vi.mock('../audio-context.js', () => ({
     audioContextManager: {
@@ -126,6 +127,10 @@ describe('Player', () => {
             getCoverSrcset: vi.fn(),
             getStreamUrl: vi.fn(),
         };
+        crossfadeSettings.isEnabled.mockReturnValue(true);
+        replayGainSettings.getMode.mockReturnValue('off');
+        replayGainSettings.getPreamp.mockReturnValue(0);
+        audioContextManager.isReady.mockReturnValue(false);
 
         Player._instance = null;
     });
@@ -147,6 +152,45 @@ describe('Player', () => {
         player.setVolume(0.5);
         expect(player.userVolume).toBe(0.5);
         expect(localStorage.getItem('volume')).toBe('0.5');
+    });
+
+    test('uses native media volume for Safari while keeping Web Audio at unity', () => {
+        player = new Player(audioElement, api);
+        player.userVolume = 0.35;
+        player.shouldUseNativeVolumeControl = vi.fn(() => true);
+        audioContextManager.isReady.mockReturnValue(true);
+
+        player.applyReplayGain();
+
+        expect(audioElement.volume).toBeCloseTo(0.35, 6);
+        expect(audioContextManager.setVolume.mock.calls.at(-1)?.[0]).toBe(1);
+    });
+
+    test('uses Web Audio volume outside Safari when the graph is ready', () => {
+        player = new Player(audioElement, api);
+        player.userVolume = 0.35;
+        player.shouldUseNativeVolumeControl = vi.fn(() => false);
+        audioContextManager.isReady.mockReturnValue(true);
+
+        player.applyReplayGain();
+
+        expect(audioElement.volume).toBe(1);
+        expect(audioContextManager.setVolume.mock.calls.at(-1)?.[0]).toBe(0.35);
+    });
+
+    test('adds the ReplayGain preamp numerically when metadata contains strings', () => {
+        player = new Player(audioElement, api);
+        player.userVolume = 0.7;
+        replayGainSettings.getMode.mockReturnValue('track');
+        replayGainSettings.getPreamp.mockReturnValue(3);
+
+        const effectiveVolume = player.getEffectiveVolume({
+            trackReplayGain: '-10',
+            trackPeakAmplitude: '1',
+        });
+
+        expect(effectiveVolume).toBeCloseTo(0.7 * Math.pow(10, -7 / 20), 6);
+        expect(effectiveVolume).toBeGreaterThan(0.3);
     });
 
     test('restores duration UI from an already-loaded crossfade element', () => {
@@ -216,13 +260,13 @@ describe('Player', () => {
         player = new Player(audioElement, api);
 
         player.setPlaybackSpeed(2.0);
-        expect(audioEffectsSettings.setSpeed).toHaveBeenCalledWith(2.0);
+        expect(audioEffectsSettings.setSpeed.mock.calls.at(-1)?.[0]).toBe(2.0);
 
         player.setPlaybackSpeed(0);
-        expect(audioEffectsSettings.setSpeed).toHaveBeenCalledWith(0.0625);
+        expect(audioEffectsSettings.setSpeed.mock.calls.at(-1)?.[0]).toBe(0.0625);
 
         player.setPlaybackSpeed(100);
-        expect(audioEffectsSettings.setSpeed).toHaveBeenCalledWith(16);
+        expect(audioEffectsSettings.setSpeed.mock.calls.at(-1)?.[0]).toBe(16);
     });
 
     test('compensates when Safari lands a direct FLAC seek before the requested time', async () => {
@@ -303,5 +347,80 @@ describe('Player', () => {
         expect(streamInfo).toBe(originalStreamInfo);
         expect(player.isCrossfadeShakaStream(streamInfo)).toBe(true);
         expect(player.canCrossfadeStream({ id: 'next' }, streamInfo)).toBe(true);
+    });
+
+    test('preloads service-worker HLS through Shaka even without an m3u8 suffix', async () => {
+        player = new Player(audioElement, api);
+        const streamUrl =
+            `${window.location.origin}/api/decrypt-stream?` +
+            new URLSearchParams({
+                url: 'https://media.example/track.mp4?token=signed',
+                key: '00112233445566778899aabbccddeeff',
+                codec: 'flac-hls',
+            }).toString();
+        api.getStreamUrl.mockResolvedValue({
+            provider: 'amazon',
+            url: streamUrl,
+            sourceUrl: 'https://media.example/track.mp4?token=signed',
+            decryptionKey: '00112233445566778899aabbccddeeff',
+            playbackType: 'direct',
+            mimeType: 'application/vnd.apple.mpegurl',
+        });
+        crossfadeSettings.isEnabled.mockReturnValue(false);
+        const preloadManager = { destroy: vi.fn() };
+        player.shakaInitialized = true;
+        player.shakaPlayer = {
+            preload: vi.fn(async () => preloadManager),
+        };
+        player.queue = [{ id: 'current' }, { id: 'next' }];
+        player.currentQueueIndex = 0;
+
+        await player._executePreloadNextTracks();
+
+        expect(player.shakaPlayer.preload).toHaveBeenCalledWith(
+            streamUrl,
+            null,
+            'application/vnd.apple.mpegurl',
+            undefined
+        );
+        expect(player.preloadCache.get('next').preloadManager).toBe(preloadManager);
+        expect(player.audioElements[1].getAttribute('src')).toBeNull();
+    });
+
+    test('evicts a failed immediate preload before retrying the track', async () => {
+        player = new Player(audioElement, api);
+        const streamInfo = {
+            url:
+                `${window.location.origin}/api/decrypt-stream?` +
+                new URLSearchParams({
+                    url: 'https://media.example/track.mp4?token=stale',
+                    key: '00112233445566778899aabbccddeeff',
+                    codec: 'flac-hls',
+                }).toString(),
+            playbackType: 'direct',
+        };
+        player.preloadCache.set('next', streamInfo);
+        player.currentTrack = { id: 'next' };
+        player.playbackSequence = 4;
+        player.shakaPlayer = {
+            getMediaElement: vi.fn(() => audioElement),
+            configure: vi.fn(),
+            load: vi.fn(async () => {
+                throw new Error('stale preload');
+            }),
+        };
+        player.playTrackFromQueue = vi.fn(async () => {});
+
+        expect(
+            player.tryStartPreloadedTrackImmediately({
+                track: player.currentTrack,
+                activeElement: audioElement,
+                previousActiveElement: audioElement,
+                currentSequence: 4,
+            })
+        ).toBe(true);
+
+        await vi.waitFor(() => expect(player.playTrackFromQueue).toHaveBeenCalledWith(0, 0, false));
+        expect(player.preloadCache.has('next')).toBe(false);
     });
 });
