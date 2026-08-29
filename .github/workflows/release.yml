@@ -80,8 +80,10 @@ jobs:
         if: matrix.os != 'ubuntu-22.04'
         shell: bash
         run: |
-          git reset --hard
-          git pull origin main
+          git fetch origin main
+          git reset --hard origin/main
+          git clean -fd
+
 
       - uses: oven-sh/setup-bun@v2
         with:
