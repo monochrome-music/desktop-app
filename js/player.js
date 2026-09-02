@@ -487,48 +487,29 @@ export class Player {
                 const artistEl = document.querySelector('.now-playing-bar .artist');
 
                 if (coverEl) {
-                    const videoCoverUrl = track.videoUrl || track.videoCoverUrl || track.album?.videoCoverUrl || null;
                     const coverId = track.image || track.cover || track.album?.cover;
-                    const coverUrl = videoCoverUrl || this.api.getCoverUrl(coverId);
-                    const coverSrcset = videoCoverUrl ? null : this.api.getCoverSrcset(coverId);
-
-                    if (videoCoverUrl) {
-                        if (coverEl.tagName === 'IMG') {
-                            const video = document.createElement('video');
-                            video.src = videoCoverUrl;
-                            video.autoplay = true;
-                            video.loop = true;
-                            video.muted = true;
-                            video.playsInline = true;
-                            video.className = coverEl.className;
-                            video.id = coverEl.id;
-                            video.style.objectFit = 'cover';
-                            coverEl.replaceWith(video);
-                        } else if (coverEl.tagName === 'VIDEO' && coverEl.src !== videoCoverUrl) {
-                            coverEl.src = videoCoverUrl;
-                        }
-                    } else {
-                        const setImgSrcset = (img) => {
-                            if (img.getAttribute('src') !== coverUrl) img.src = coverUrl;
-                            if (coverSrcset) {
-                                img.setAttribute('srcset', coverSrcset);
-                                img.setAttribute('sizes', '(max-width: 640px) 160px, (max-width: 1024px) 320px, 640px');
-                            } else {
-                                img.removeAttribute('srcset');
-                                img.removeAttribute('sizes');
-                            }
-                        };
-                        if (coverEl.tagName === 'VIDEO') {
-                            const img = document.createElement('img');
-                            img.crossOrigin = 'anonymous';
-                            img.referrerPolicy = 'no-referrer';
-                            img.className = coverEl.className;
-                            img.id = coverEl.id;
-                            setImgSrcset(img);
-                            coverEl.replaceWith(img);
+                    const coverUrl = this.api.getCoverUrl(coverId);
+                    const coverSrcset = this.api.getCoverSrcset(coverId);
+                    const setImgSrcset = (img) => {
+                        if (img.getAttribute('src') !== coverUrl) img.src = coverUrl;
+                        if (coverSrcset) {
+                            img.setAttribute('srcset', coverSrcset);
+                            img.setAttribute('sizes', '(max-width: 640px) 160px, (max-width: 1024px) 320px, 640px');
                         } else {
-                            setImgSrcset(coverEl);
+                            img.removeAttribute('srcset');
+                            img.removeAttribute('sizes');
                         }
+                    };
+                    if (coverEl.tagName === 'VIDEO') {
+                        const img = document.createElement('img');
+                        img.crossOrigin = 'anonymous';
+                        img.referrerPolicy = 'no-referrer';
+                        img.className = coverEl.className;
+                        img.id = coverEl.id;
+                        setImgSrcset(img);
+                        coverEl.replaceWith(img);
+                    } else {
+                        setImgSrcset(coverEl);
                     }
                 }
                 if (titleEl) {
@@ -551,10 +532,6 @@ export class Player {
                     this.loadAlbumYear(track, trackArtistsHTML, artistEl);
                 }
 
-                const mixBtn = document.getElementById('now-playing-mix-btn');
-                if (mixBtn) {
-                    mixBtn.style.display = track.mixes && track.mixes.TRACK_MIX ? 'flex' : 'none';
-                }
                 const totalDurationEl = document.getElementById('total-duration');
                 if (totalDurationEl) totalDurationEl.textContent = formatTime(track.duration);
                 document.title = `${trackTitle} • ${getTrackArtists(track)}`;
@@ -716,7 +693,7 @@ export class Player {
                 const streamInfo =
                     track.type == 'video'
                         ? await this.api.getVideoStreamUrl(track.id)
-                        : await this.api.getStreamUrl(track.id, this.quality);
+                        : await this.api.getStreamUrl(track.id, this.quality, { track });
 
                 if (this.preloadAbortController.signal.aborted) break;
 
@@ -1251,46 +1228,6 @@ export class Player {
         await this.playTrackFromQueue();
     }
 
-    async updateVideoCovers(videoUrl) {
-        if (!videoUrl) return;
-
-        const syncCover = async (el) => {
-            if (!el) return;
-            const isPaused = this.activeElement.paused;
-            let videoEl;
-            if (el.tagName === 'IMG') {
-                videoEl = document.createElement('video');
-                videoEl.autoplay = !isPaused;
-                videoEl.loop = true;
-                videoEl.muted = true;
-                videoEl.playsInline = true;
-                videoEl.className = el.className;
-                videoEl.id = el.id;
-                videoEl.style.objectFit = 'cover';
-                el.replaceWith(videoEl);
-            } else if (el.tagName === 'VIDEO') {
-                videoEl = el;
-            } else {
-                return;
-            }
-
-            if (UIRenderer.instance) {
-                await UIRenderer.instance.setupHlsVideo(videoEl, videoUrl, null);
-                if (isPaused) {
-                    videoEl.pause();
-                } else {
-                    videoEl.play().catch(() => {});
-                }
-            }
-        };
-
-        const playerBarCover = document.querySelector('.now-playing-bar .cover');
-        if (playerBarCover) await syncCover(playerBarCover);
-
-        const fullscreenCover = document.getElementById('fullscreen-cover-image');
-        if (fullscreenCover) await syncCover(fullscreenCover);
-    }
-
     async playTrackFromQueue(startTime = 0, recursiveCount = 0, isRetry = false, options = {}) {
         await this.shakaReady;
         const { preserveGestureToken = false, preparedPlayback = null } = options;
@@ -1355,25 +1292,8 @@ export class Player {
         this.seekSequence += 1;
         this.addToRecentlyPlayed(track.id);
         const trackTitle = getTrackTitle(track);
-        const artistName = getTrackArtists(track);
         const trackArtistsHTML = getTrackArtistsHTML(track);
         const yearDisplay = getTrackYearDisplay(track);
-
-        if (!track.videoUrl && !track.videoCoverUrl && !track.album?.videoCoverUrl) {
-            this.api.getVideoArtwork(trackTitle, artistName).then((result) => {
-                if (this.currentTrack?.id === track.id && result && (result.videoUrl || result.hlsUrl)) {
-                    track.videoCoverUrl = result.videoUrl || result.hlsUrl;
-                    void this.updateVideoCovers(track.videoCoverUrl);
-
-                    if (
-                        UIRenderer.instance &&
-                        document.getElementById('fullscreen-cover-overlay')?.style.display === 'flex'
-                    ) {
-                        UIRenderer.instance.updateFullscreenMetadata(track, this.getNextTrack());
-                    }
-                }
-            });
-        }
 
         const trackInfo = document.querySelector('.now-playing-bar .track-info');
         const coverEl = trackInfo?.querySelector('.cover:not(#audio-player):not(#video-player)');
@@ -1448,33 +1368,27 @@ export class Player {
         } else {
             if (coverEl) {
                 coverEl.style.display = 'block';
-                const videoCoverUrl = track.videoUrl || track.videoCoverUrl || track.album?.videoCoverUrl || null;
                 const coverId = track.image || track.cover || track.album?.cover;
-                const coverUrl = videoCoverUrl || this.api.getCoverUrl(coverId);
-                const coverSrcset = videoCoverUrl ? null : this.api.getCoverSrcset(coverId);
+                const coverUrl = this.api.getCoverUrl(coverId);
+                const coverSrcset = this.api.getCoverSrcset(coverId);
+                let imgEl = coverEl;
+                if (coverEl.tagName === 'VIDEO') {
+                    imgEl = document.createElement('img');
+                    imgEl.crossOrigin = 'anonymous';
+                    imgEl.referrerPolicy = 'no-referrer';
+                    imgEl.className = coverEl.className;
+                    imgEl.id = coverEl.id;
+                    coverEl.replaceWith(imgEl);
+                }
 
-                if (videoCoverUrl) {
-                    void this.updateVideoCovers(videoCoverUrl);
-                } else {
-                    let imgEl = coverEl;
-                    if (coverEl.tagName === 'VIDEO') {
-                        imgEl = document.createElement('img');
-                        imgEl.crossOrigin = 'anonymous';
-                        imgEl.referrerPolicy = 'no-referrer';
-                        imgEl.className = coverEl.className;
-                        imgEl.id = coverEl.id;
-                        coverEl.replaceWith(imgEl);
-                    }
-
-                    if (imgEl.getAttribute('src') !== coverUrl) {
-                        imgEl.src = coverUrl;
-                        if (coverSrcset) {
-                            imgEl.setAttribute('srcset', coverSrcset);
-                            imgEl.setAttribute('sizes', '(max-width: 640px) 160px, (max-width: 1024px) 320px, 640px');
-                        } else {
-                            imgEl.removeAttribute('srcset');
-                            imgEl.removeAttribute('sizes');
-                        }
+                if (imgEl.getAttribute('src') !== coverUrl) {
+                    imgEl.src = coverUrl;
+                    if (coverSrcset) {
+                        imgEl.setAttribute('srcset', coverSrcset);
+                        imgEl.setAttribute('sizes', '(max-width: 640px) 160px, (max-width: 1024px) 320px, 640px');
+                    } else {
+                        imgEl.removeAttribute('srcset');
+                        imgEl.removeAttribute('sizes');
                     }
                 }
             }
@@ -1505,10 +1419,6 @@ export class Player {
             this.loadAlbumYear(track, trackArtistsHTML, artistEl);
         }
 
-        const mixBtn = document.getElementById('now-playing-mix-btn');
-        if (mixBtn) {
-            mixBtn.style.display = track.mixes && track.mixes.TRACK_MIX ? 'flex' : 'none';
-        }
         document.title = `${trackTitle} • ${getTrackArtists(track)}`;
 
         this.updatePlayingTrackIndicator();
@@ -1685,7 +1595,7 @@ export class Player {
                     ? Promise.resolve(preparedPlayback.streamInfo)
                     : cachedStreamInfo
                       ? Promise.resolve(cachedStreamInfo)
-                      : this.api.getStreamUrl(track.id, this.quality);
+                      : this.api.getStreamUrl(track.id, this.quality, { track });
 
                 // We only need the legacy track info if we missed getting ReplayGain from the manifest endpoint
                 let resolvedStreamInfo = await streamInfoPromise;
@@ -2099,7 +2009,7 @@ export class Player {
             try {
                 streamInfo =
                     this.preloadCache.get(candidate.track.id) ||
-                    (await this.api.getStreamUrl(candidate.track.id, this.quality));
+                    (await this.api.getStreamUrl(candidate.track.id, this.quality, { track: candidate.track }));
             } catch {
                 return false;
             }

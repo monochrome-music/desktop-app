@@ -169,79 +169,6 @@ async function loadMetadataModule() {
     return metadataModule;
 }
 
-function initializeCasting(audioPlayer, castBtn) {
-    if (!castBtn) return;
-
-    if ('remote' in audioPlayer) {
-        audioPlayer.remote
-            .watchAvailability((available) => {
-                if (available) {
-                    castBtn.style.display = 'flex';
-                    castBtn.classList.add('available');
-                }
-            })
-            .catch((err) => {
-                console.log('Remote playback not available:', err);
-                if (window.innerWidth > 768) {
-                    castBtn.style.display = 'flex';
-                }
-            });
-
-        castBtn.addEventListener('click', () => {
-            if (!audioPlayer.src) {
-                alert('Please play a track first to enable casting.');
-                return;
-            }
-            audioPlayer.remote.prompt().catch((err) => {
-                if (err.name === 'NotAllowedError') return;
-                if (err.name === 'NotFoundError') {
-                    alert('No remote playback devices (Chromecast/AirPlay) were found on your network.');
-                    return;
-                }
-                console.log('Cast prompt error:', err);
-            });
-        });
-
-        audioPlayer.addEventListener('playing', () => {
-            if (audioPlayer.remote && audioPlayer.remote.state === 'connected') {
-                castBtn.classList.add('connected');
-            }
-        });
-
-        audioPlayer.addEventListener('pause', () => {
-            if (audioPlayer.remote && audioPlayer.remote.state === 'disconnected') {
-                castBtn.classList.remove('connected');
-            }
-        });
-    } else if (audioPlayer.webkitShowPlaybackTargetPicker) {
-        castBtn.style.display = 'flex';
-        castBtn.classList.add('available');
-
-        castBtn.addEventListener('click', () => {
-            audioPlayer.webkitShowPlaybackTargetPicker();
-        });
-
-        audioPlayer.addEventListener('webkitplaybacktargetavailabilitychanged', (e) => {
-            if (e.availability === 'available') {
-                castBtn.classList.add('available');
-            }
-        });
-
-        audioPlayer.addEventListener('webkitcurrentplaybacktargetiswirelesschanged', () => {
-            if (audioPlayer.webkitCurrentPlaybackTargetIsWireless) {
-                castBtn.classList.add('connected');
-            } else {
-                castBtn.classList.remove('connected');
-            }
-        });
-    } else if (window.innerWidth > 768) {
-        castBtn.style.display = 'flex';
-        castBtn.addEventListener('click', () => {
-            alert('Casting is not supported in this browser. Try Chrome for Chromecast or Safari for AirPlay.');
-        });
-    }
-}
-
 function initializeKeyboardShortcuts(player, _audioPlayer) {
     const keyActionMap = {
         playPause: () => {
@@ -584,9 +511,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Initialize tracker
     initTracker().catch(console.error);
-
-    const castBtn = document.getElementById('cast-btn');
-    initializeCasting(audioPlayer, castBtn);
 
     await UIRenderer.initialize(MusicAPI.instance, Player.instance);
 
@@ -2574,6 +2498,35 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }, 3000);
 
+    let suggestionsAbortController = null;
+    const selectSearchSuggestion = (suggestion) => {
+        const query = suggestion.searchTerm;
+        searchInput.value = query;
+        UIRenderer.instance.addToSearchHistory(query);
+        const dropdown = document.getElementById('search-history');
+        if (dropdown) dropdown.style.display = 'none';
+        if (suggestion.kind === 'song' && suggestion.track?.appleMusicId) {
+            navigate(`/track/apple/${suggestion.track.appleMusicId}`);
+            return;
+        }
+        performSearch(query);
+    };
+    const loadSearchSuggestions = debounce(async (query) => {
+        if (query !== searchInput.value.trim() || document.activeElement !== searchInput) return;
+        suggestionsAbortController?.abort();
+        suggestionsAbortController = new AbortController();
+        try {
+            const suggestions = await MusicAPI.instance.searchSuggestions(query, {
+                signal: suggestionsAbortController.signal,
+                limit: 8,
+            });
+            if (query !== searchInput.value.trim() || document.activeElement !== searchInput) return;
+            UIRenderer.instance.renderSearchSuggestions(suggestions, selectSearchSuggestion);
+        } catch (error) {
+            if (error.name !== 'AbortError') console.warn('Search suggestions failed:', error);
+        }
+    }, 200);
+
     const handleExternalLink = (query) => {
         const isExternalLink =
             query.includes('monochrome.tf/') ||
@@ -2601,13 +2554,49 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     searchInput.addEventListener('input', (e) => {
         const query = e.target.value.trim();
-        if (!query) return;
+        suggestionsAbortController?.abort();
+        loadSearchSuggestions.cancel();
+        if (!query) {
+            UIRenderer.instance.renderSearchHistory();
+            return;
+        }
 
         if (handleExternalLink(query)) {
             return;
         }
 
+        if (query.length >= 2) {
+            loadSearchSuggestions(query);
+        } else {
+            const dropdown = document.getElementById('search-history');
+            if (dropdown) dropdown.style.display = 'none';
+        }
         debouncedSearch(query);
+    });
+
+    searchInput.addEventListener('keydown', (e) => {
+        const dropdown = document.getElementById('search-history');
+        const items = Array.from(dropdown.querySelectorAll('.search-suggestion-item'));
+        const activeIndex = items.findIndex((item) => item.classList.contains('active'));
+
+        if (e.key === 'Escape') {
+            dropdown.style.display = 'none';
+            return;
+        }
+        if (items.length === 0 || !['ArrowDown', 'ArrowUp', 'Enter'].includes(e.key)) return;
+        if (e.key === 'Enter' && activeIndex < 0) return;
+
+        e.preventDefault();
+        if (e.key === 'Enter') {
+            items[activeIndex].click();
+            return;
+        }
+
+        items.forEach((item) => item.classList.remove('active'));
+        const nextIndex =
+            e.key === 'ArrowDown' ? (activeIndex + 1) % items.length : (activeIndex - 1 + items.length) % items.length;
+        items[nextIndex].classList.add('active');
+        items[nextIndex].scrollIntoView({ block: 'nearest' });
     });
 
     searchInput.addEventListener('change', (e) => {

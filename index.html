@@ -334,8 +334,13 @@
                             <div class="fullscreen-track-info">
                                 <div class="fullscreen-track-text">
                                     <h2 id="fullscreen-track-title"></h2>
-                                    <h3 id="fullscreen-track-album"></h3>
-                                    <h3 id="fullscreen-track-artist"></h3>
+                                    <div style="display: flex; align-items: center">
+                                        <h3 id="fullscreen-track-album"></h3>
+                                        <h3 style="font-size: 0.9rem; position: relative; top: -0.15rem">
+                                            &nbsp;&#9886;&nbsp;
+                                        </h3>
+                                        <h3 id="fullscreen-track-artist"></h3>
+                                    </div>
                                 </div>
                                 <div class="fullscreen-actions">
                                     <button id="fs-like-btn" class="btn-icon like-btn" title="Like">
@@ -346,9 +351,6 @@
                                     </button>
                                     <button id="fs-download-btn" class="btn-icon" title="Download">
                                         <use svg="!lucide/download.svg" size="24" />
-                                    </button>
-                                    <button id="fs-cast-btn" class="btn-icon" title="Cast">
-                                        <use svg="!lucide/cast.svg" size="24" />
                                     </button>
                                     <button id="fs-queue-btn" class="btn-icon" title="Queue">
                                         <use svg="!lucide/list.svg" size="24" />
@@ -1867,6 +1869,8 @@
                             autocorrect="off"
                             autocapitalize="off"
                             spellcheck="false"
+                            aria-autocomplete="list"
+                            aria-controls="search-history"
                         />
                         <button
                             type="button"
@@ -6954,25 +6958,12 @@
                             <use svg="!lucide/list-plus.svg" size="20" />
                         </button>
 
-                        <button
-                            id="now-playing-mix-btn"
-                            class="mix-btn"
-                            data-action="track-mix"
-                            title="Track Mix"
-                            style="display: none"
-                        >
-                            <use svg="./images/mix.svg" size="20" />
-                        </button>
                         <button id="toggle-lyrics-btn" title="Lyrics" style="display: none" aria-label="Lyrics">
                             <use svg="!lucide/mic-vocal.svg" size="20" />
                         </button>
                         <button id="download-current-btn" title="Download current track" class="desktop-only">
                             <use svg="!lucide/download.svg" size="20" />
                         </button>
-                        <button id="cast-btn" title="Cast">
-                            <use svg="!lucide/cast.svg" size="20" />
-                        </button>
-
                         <button
                             id="mobile-add-playlist-btn"
                             class="mobile-only"

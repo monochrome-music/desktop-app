@@ -1,6 +1,6 @@
 [package]
 name = "monochromedesktop"
-version = "2.0.11"
+version = "2.0.12"
 description = "A desktop version for Monochrome, a music streaming website with a Tidal like frontend."
 authors = ["you"]
 edition = "2021"
