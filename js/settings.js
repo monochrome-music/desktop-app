@@ -35,7 +35,6 @@ import {
     pwaUpdateSettings,
     contentBlockingSettings,
     musicProviderSettings,
-    unifiedPlaybackSettings,
     deezerFallbackSettings,
     gaplessPlaybackSettings,
     analyticsSettings,
@@ -842,42 +841,6 @@ export async function initializeSettings(scrobbler, player, api, ui) {
             musicProviderSettings.setProvider(e.target.value);
             // Reload page to apply changes
             window.location.reload();
-        });
-    }
-
-    const unifiedPlaybackToggle = document.getElementById('unified-playback-toggle');
-    if (unifiedPlaybackToggle) {
-        unifiedPlaybackToggle.checked = unifiedPlaybackSettings.isEnabled();
-        unifiedPlaybackToggle.addEventListener('change', (e) => {
-            unifiedPlaybackSettings.setEnabled(e.target.checked);
-            api?.clearUnifiedTurnstileJwt?.();
-            api?.clearCache?.();
-            if (e.target.checked && unifiedPlaybackSettings.getApiToken().trim()) {
-                api?.getUnifiedTurnstileJwt?.().catch(() => null);
-            }
-        });
-    }
-
-    const unifiedApiBaseUrlInput = document.getElementById('unified-playback-api-base-url');
-    if (unifiedApiBaseUrlInput) {
-        unifiedApiBaseUrlInput.value = unifiedPlaybackSettings.getApiBaseUrl();
-        unifiedApiBaseUrlInput.addEventListener('change', (e) => {
-            unifiedPlaybackSettings.setApiBaseUrl(e.target.value.trim());
-            api?.clearUnifiedTurnstileJwt?.();
-            api?.clearCache?.();
-        });
-    }
-
-    const unifiedApiTokenInput = document.getElementById('unified-playback-api-token');
-    if (unifiedApiTokenInput) {
-        unifiedApiTokenInput.value = unifiedPlaybackSettings.getApiToken();
-        unifiedApiTokenInput.addEventListener('change', (e) => {
-            unifiedPlaybackSettings.setApiToken(e.target.value.trim());
-            api?.clearUnifiedTurnstileJwt?.();
-            api?.clearCache?.();
-            if (e.target.value.trim() && unifiedPlaybackSettings.isEnabled()) {
-                api?.getUnifiedTurnstileJwt?.().catch(() => null);
-            }
         });
     }
 
@@ -4737,8 +4700,27 @@ export async function initializeSettings(scrobbler, player, api, ui) {
                         }
                     }
                     if (bands.length === 0) return;
-                    parametricBands = bands;
-                    applyBandsToAudio(parametricBands);
+                    // Importing while on the AutoEQ tab saves a reference AutoEQ
+                    // profile instead of overwriting the Parametric EQ bands.
+                    if (currentMode === 'autoeq') {
+                        autoeqCurrentBands = bands.map((b, i) => ({ channel: 'stereo', ...b, id: i }));
+                        const profileName = file.name.replace(/\.(txt|csv)$/i, '') || 'Imported';
+                        const id = equalizerSettings.saveAutoEQProfile({
+                            id: 'autoeq_' + Date.now(),
+                            name: profileName,
+                            headphoneName: profileName,
+                            headphoneType: 'over-ear',
+                            bandCount: bands.length,
+                            bands: autoeqCurrentBands.map((b) => ({ ...b })),
+                            preamp,
+                        });
+                        if (id) equalizerSettings.setActiveAutoEQProfile(id);
+                        renderSavedProfiles();
+                        applyBandsToAudio(autoeqCurrentBands);
+                    } else {
+                        parametricBands = bands;
+                        applyBandsToAudio(parametricBands);
+                    }
                     equalizerSettings.setPreamp(preamp);
                     if (eqPreampSlider) eqPreampSlider.value = preamp;
                     if (autoeqPreampValue) autoeqPreampValue.textContent = `${preamp} dB`;

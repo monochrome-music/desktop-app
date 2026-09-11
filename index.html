@@ -147,6 +147,7 @@
     </head>
 
     <body>
+        <div class="playback-maintenance-notice" role="alert">Playback’s down for maintenance.</div>
         <audio id="audio-player" crossorigin="anonymous" style="display: none"></audio>
         <video id="video-player" crossorigin="anonymous" style="display: none"></video>
 
@@ -334,27 +335,10 @@
                             <div class="fullscreen-track-info">
                                 <div class="fullscreen-track-text">
                                     <h2 id="fullscreen-track-title"></h2>
-                                    <div style="display: flex; align-items: center">
+                                    <div id="fullscreen-track-subtext">
                                         <h3 id="fullscreen-track-album"></h3>
-                                        <h3 style="font-size: 0.9rem; position: relative; top: -0.15rem">
-                                            &nbsp;&#9886;&nbsp;
-                                        </h3>
                                         <h3 id="fullscreen-track-artist"></h3>
                                     </div>
-                                </div>
-                                <div class="fullscreen-actions">
-                                    <button id="fs-like-btn" class="btn-icon like-btn" title="Like">
-                                        <use svg="!lucide/heart.svg" class="heart-icon" size="24" />
-                                    </button>
-                                    <button id="fs-add-playlist-btn" class="btn-icon" title="Add to Playlist">
-                                        <use svg="!lucide/square-pen.svg" size="24" />
-                                    </button>
-                                    <button id="fs-download-btn" class="btn-icon" title="Download">
-                                        <use svg="!lucide/download.svg" size="24" />
-                                    </button>
-                                    <button id="fs-queue-btn" class="btn-icon" title="Queue">
-                                        <use svg="!lucide/list.svg" size="24" />
-                                    </button>
                                 </div>
                                 <div id="fullscreen-next-track" style="display: none">
                                     <span class="label">Up Next</span>
@@ -377,6 +361,9 @@
                                     <span id="fs-total-duration">0:00</span>
                                 </div>
                                 <div class="fullscreen-buttons">
+                                    <button id="fs-like-btn" class="btn-icon like-btn" title="Like">
+                                        <use svg="!lucide/heart.svg" class="heart-icon" size="24" />
+                                    </button>
                                     <button id="fs-shuffle-btn" title="Shuffle">
                                         <use svg="!lucide/shuffle.svg" size="24" />
                                     </button>
@@ -388,6 +375,9 @@
                                     </button>
                                     <button id="fs-next-btn" title="Next">
                                         <use svg="!lucide/arrow-right-to-line.svg" size="24" />
+                                    </button>
+                                    <button id="fs-add-playlist-btn" class="btn-icon" title="Add to Playlist">
+                                        <use svg="!lucide/square-pen.svg" size="24" />
                                     </button>
                                     <button id="fs-repeat-btn" title="Repeat">
                                         <use svg="!lucide/repeat.svg" size="24" />
@@ -4229,27 +4219,27 @@
                                         >
                                     </div>
                                     <select id="streaming-quality-setting">
-                                        <option value="auto" data-sources="Amazon and Mono">Auto (Adaptive)</option>
-                                        <option value="DOLBY_ATMOS_EAC3_HIGH" data-sources="Amazon and Tidal">
+                                        <option value="auto">Auto (Adaptive)</option>
+                                        <option value="DOLBY_ATMOS_EAC3_HIGH" data-sources="Tidal">
                                             Dolby Atmos — E-AC-3 High
                                         </option>
-                                        <option value="DOLBY_ATMOS_EAC3_LOW" data-sources="Amazon">
+                                        <option value="DOLBY_ATMOS_EAC3_LOW">
                                             Dolby Atmos — E-AC-3 Low
                                         </option>
-                                        <option value="DOLBY_ATMOS_AC4_HIGH" data-sources="Amazon">
+                                        <option value="DOLBY_ATMOS_AC4_HIGH">
                                             Dolby Atmos — AC-4 High
                                         </option>
-                                        <option value="DOLBY_ATMOS_AC4_LOW" data-sources="Amazon">
+                                        <option value="DOLBY_ATMOS_AC4_LOW">
                                             Dolby Atmos — AC-4 Low
                                         </option>
-                                        <option value="HI_RES_LOSSLESS" data-sources="Amazon and Mono">
+                                        <option value="HI_RES_LOSSLESS" data-sources="Mono">
                                             Hi-Res Lossless (24-bit)
                                         </option>
-                                        <option value="LOSSLESS" data-sources="Amazon and Mono">
+                                        <option value="LOSSLESS" data-sources="Mono">
                                             Lossless (16-bit)
                                         </option>
-                                        <option value="HIGH" data-sources="Amazon">High</option>
-                                        <option value="LOW" data-sources="Amazon">Low</option>
+                                        <option value="HIGH">High</option>
+                                        <option value="LOW">Low</option>
                                     </select>
                                 </div>
                                 <div
@@ -5539,26 +5529,26 @@
                                             >
                                         </div>
                                         <select id="download-quality-setting">
-                                            <option value="DOLBY_ATMOS_EAC3_HIGH" data-sources="Amazon and Tidal">
+                                            <option value="DOLBY_ATMOS_EAC3_HIGH" data-sources="Tidal">
                                                 Dolby Atmos — E-AC-3 High
                                             </option>
-                                            <option value="DOLBY_ATMOS_EAC3_LOW" data-sources="Amazon">
+                                            <option value="DOLBY_ATMOS_EAC3_LOW">
                                                 Dolby Atmos — E-AC-3 Low
                                             </option>
-                                            <option value="DOLBY_ATMOS_AC4_HIGH" data-sources="Amazon">
+                                            <option value="DOLBY_ATMOS_AC4_HIGH">
                                                 Dolby Atmos — AC-4 High
                                             </option>
-                                            <option value="DOLBY_ATMOS_AC4_LOW" data-sources="Amazon">
+                                            <option value="DOLBY_ATMOS_AC4_LOW">
                                                 Dolby Atmos — AC-4 Low
                                             </option>
-                                            <option value="HI_RES_LOSSLESS" data-sources="Amazon and Mono">
+                                            <option value="HI_RES_LOSSLESS" data-sources="Mono">
                                                 Hi-Res Lossless (24-bit)
                                             </option>
-                                            <option value="LOSSLESS" data-sources="Amazon and Mono">
+                                            <option value="LOSSLESS" data-sources="Mono">
                                                 Lossless (16-bit)
                                             </option>
-                                            <option value="HIGH" data-sources="Amazon">High</option>
-                                            <option value="LOW" data-sources="Amazon">Low</option>
+                                            <option value="HIGH">High</option>
+                                            <option value="LOW">Low</option>
                                         </select>
                                     </div>
                                     <div class="setting-item" id="hi-res-download-warning" style="display: none">
@@ -5874,65 +5864,6 @@
                             <div class="settings-group">
                                 <div class="setting-item">
                                     <div class="info">
-                                        <span class="label">Unified Playback</span>
-                                        <span class="description"
-                                            >Amazon is tried first, with the in-house lossless source handled by the
-                                            same API when Amazon is unavailable.</span
-                                        >
-                                    </div>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" id="unified-playback-toggle" checked />
-                                        <span class="slider"></span>
-                                    </label>
-                                </div>
-                                <div class="setting-item">
-                                    <div class="info">
-                                        <span class="label">Unified Playback API URL</span>
-                                        <span class="description">The API endpoint that resolves Amazon and Mono</span>
-                                    </div>
-                                    <input
-                                        type="text"
-                                        id="unified-playback-api-base-url"
-                                        placeholder="https://music-api.geeked.wtf"
-                                        style="
-                                            width: 220px;
-                                            padding: 0.35rem 0.5rem;
-                                            border: 1px solid var(--border);
-                                            border-radius: var(--radius-md);
-                                            background: var(--card);
-                                            color: var(--foreground);
-                                            font-size: 0.8rem;
-                                        "
-                                    />
-                                </div>
-                                <div class="setting-item">
-                                    <div class="info">
-                                        <span class="label">App API Key</span>
-                                        <span class="description"
-                                            >Bearer key used with a browser Turnstile session for playback</span
-                                        >
-                                    </div>
-                                    <input
-                                        type="password"
-                                        id="unified-playback-api-token"
-                                        placeholder="amp_…"
-                                        autocomplete="off"
-                                        style="
-                                            width: 220px;
-                                            padding: 0.35rem 0.5rem;
-                                            border: 1px solid var(--border);
-                                            border-radius: var(--radius-md);
-                                            background: var(--card);
-                                            color: var(--foreground);
-                                            font-size: 0.8rem;
-                                        "
-                                    />
-                                </div>
-                            </div>
-
-                            <div class="settings-group">
-                                <div class="setting-item">
-                                    <div class="info">
                                         <span class="label">Deezer Fallback</span>
                                         <span class="description"
                                             >Last-resort source when the primary and other fallback providers fail. Tops
@@ -6189,10 +6120,6 @@
                                 If Monochrome has been useful to you and you're able to, consider making a donation.
                                 <br />
                                 It helps pay for the server and domain, and you get to support us :)
-                            </p>
-                            <p style="text-align: center; color: var(--muted-foreground); margin-top: 1rem">
-                                If you cannot financially support us, please consider starring the project on GitHub and
-                                sharing with friends!
                             </p>
                             <div
                                 class="donate-button"
@@ -6619,25 +6546,6 @@
                                     <use svg="!lucide/copy.svg" size="18" class="crypto-wallet-copy-icon" />
                                 </button>
                             </div>
-                        </div>
-                        <div class="donate-alt-section">
-                            <p class="donate-alt-text">
-                                While donating isn't required and the service can still live on without hitting our
-                                goals, we're deeply grateful if you do! It helps the project have "just-in-case" money
-                                and helps us (the developers) out personally!
-                            </p>
-                            <p class="donate-alt-text">
-                                If you cannot financially support us, please consider starring the project on GitHub and
-                                sharing with friends!
-                            </p>
-                            <a
-                                href="https://github.com/monochrome-music/monochrome"
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                class="btn-secondary donate-github-btn"
-                            >
-                                Star on GitHub
-                            </a>
                         </div>
                     </div>
                 </div>

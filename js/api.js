@@ -30,7 +30,7 @@ import { DownloadProgress } from './progressEvents.js';
 import { resolveDownloadTotalBytes } from './downloadProgressUtils.js';
 import { readableStreamIterator } from './readableStreamIterator.js';
 import { HiFiClient, TidalResponse } from './HiFi.ts';
-import { canUseNativeAmazonCenc, getAmazonDecrypterCodec, canBrowserStreamAtmosQuality } from './platform-detection.js';
+import { canBrowserStreamAtmosQuality } from './platform-detection.js';
 import {
     TrackAlbum,
     EnrichedAlbum,
@@ -93,6 +93,9 @@ function notifyAudioSourceMissing(details = null) {
             m.showNotification('Could not find Audio Source', {
                 type: 'error',
                 details,
+                // Transient playback failure, not an actionable bug — don't
+                // offer a GitHub report link (it floods the tracker).
+                reportIssue: false,
             })
         )
         .catch(() => {});
@@ -1739,7 +1742,6 @@ export class LosslessAPI {
             trackPeakAmplitude: trackNorm.peakAmplitude,
             albumReplayGain: albumNorm.replayGain,
             albumPeakAmplitude: albumNorm.peakAmplitude,
-            drmData: attributes.drmData || null,
             formats: attributes.formats || [],
         };
 
@@ -1902,7 +1904,7 @@ export class LosslessAPI {
         return { url, format, provider: 'deezer', rgInfo: null };
     }
 
-    getAmazonMusicQuality(quality = 'LOSSLESS', { preferAdaptiveAuto = false } = {}) {
+    getLegacySourceQuality(quality = 'LOSSLESS', { preferAdaptiveAuto = false } = {}) {
         let adaptiveQuality = null;
         try {
             adaptiveQuality =
@@ -1960,7 +1962,7 @@ export class LosslessAPI {
         } catch {}
 
         for (const [key, value] of this.streamCache.entries()) {
-            if (value?.provider === 'amazon' || value?.provider === 'monochrome') {
+            if (value?.provider === 'legacy' || value?.provider === 'monochrome') {
                 this.streamCache.delete(key);
             }
         }
@@ -1968,12 +1970,12 @@ export class LosslessAPI {
         console.warn('Unified Playback API rate limited the client; temporarily falling back');
     }
 
-    getAmazonSelectedQualityInfo(trackInfo) {
+    getLegacySelectedQualityInfo(trackInfo) {
         if (!Array.isArray(trackInfo?.available_qualities)) return null;
         return trackInfo.available_qualities.find((item) => item.quality === trackInfo.quality_selected) || null;
     }
 
-    getAmazonCodecString(codec) {
+    getLegacyCodecString(codec) {
         const normalized = String(codec || '').toLowerCase();
         if (normalized === 'flac') return 'fLaC';
         if (normalized === 'opus') return 'Opus';
@@ -1983,25 +1985,16 @@ export class LosslessAPI {
         return normalized;
     }
 
-    getAmazonDecryptionKey(data) {
-        return (
-            data?.decryption_key ||
-            data?.decryptionKey ||
-            data?.encryption?.key?.value ||
-            data?.decryption?.key?.value ||
-            data?.decryption?.key ||
-            data?.drm?.decryption_key ||
-            data?.drm?.decryptionKey ||
-            null
-        );
-    }
-
-    getAmazonMimeType(qualityInfo = null) {
-        const codec = this.getAmazonCodecString(qualityInfo?.codec);
+    getLegacyMimeType(qualityInfo = null) {
+        const codec = this.getLegacyCodecString(qualityInfo?.codec);
         return codec ? `audio/mp4; codecs="${codec}"` : 'audio/mp4';
     }
 
-    getAmazonQualityDisplay(trackInfo, qualityInfo = null) {
+    async canPlayLegacyStream(_trackInfo = null) {
+        return false;
+    }
+
+    getLegacyQualityDisplay(trackInfo, qualityInfo = null) {
         const quality = String(trackInfo?.quality_selected || trackInfo?.quality_requested || '')
             .trim()
             .toUpperCase();
@@ -2236,14 +2229,6 @@ export class LosslessAPI {
         return `PT${duration.toFixed(3).replace(/\.?0+$/, '')}S`;
     }
 
-    formatKeyIdUuid(keyId) {
-        const normalized = String(keyId || '')
-            .replace(/-/g, '')
-            .toLowerCase();
-        if (normalized.length !== 32) return normalized;
-        return `${normalized.slice(0, 8)}-${normalized.slice(8, 12)}-${normalized.slice(12, 16)}-${normalized.slice(16, 20)}-${normalized.slice(20)}`;
-    }
-
     readMp4Uint32(bytes, offset) {
         if (offset + 4 > bytes.length) return null;
         return ((bytes[offset] << 24) | (bytes[offset + 1] << 16) | (bytes[offset + 2] << 8) | bytes[offset + 3]) >>> 0;
@@ -2294,23 +2279,6 @@ export class LosslessAPI {
         return boxes;
     }
 
-    findCencDefaultKid(buffer) {
-        const bytes = new Uint8Array(buffer);
-
-        for (let i = 4; i < bytes.length - 32; i++) {
-            if (this.readMp4Type(bytes, i) !== 'tenc') continue;
-
-            const size = this.readMp4Uint32(bytes, i - 4);
-            if (size < 32 || i - 4 + size > bytes.length) continue;
-
-            const payloadOffset = i + 4;
-            const kidOffset = payloadOffset + 8;
-            return this.bytesToHex(bytes.slice(kidOffset, kidOffset + 16));
-        }
-
-        return null;
-    }
-
     findMp4SidxInfo(buffer) {
         const bytes = new Uint8Array(buffer);
 
@@ -2357,7 +2325,7 @@ export class LosslessAPI {
             let durationUnits = 0;
             for (let i = 0; i < referenceCount; i++) {
                 if (cursor + 12 > boxStart + size) {
-                    throw new Error('Amazon Music MP4 has a truncated SIDX');
+                    throw new Error('Protected MP4 has a truncated SIDX');
                 }
                 const chunk = this.readMp4Uint32(bytes, cursor);
                 cursor += 4;
@@ -2366,7 +2334,7 @@ export class LosslessAPI {
                 cursor += 4;
                 cursor += 4;
                 if (referenceType === 1 || subsegmentDuration == null) {
-                    throw new Error('Amazon Music MP4 uses unsupported hierarchical SIDX');
+                    throw new Error('Protected MP4 uses unsupported hierarchical SIDX');
                 }
                 durationUnits += subsegmentDuration;
             }
@@ -2418,105 +2386,13 @@ export class LosslessAPI {
         return output.buffer;
     }
 
-    getAmazonInitRangeEnd(buffer, sidxInfo) {
-        const boxes = this.findTopLevelMp4Boxes(buffer);
-        const firstSegmentStart = sidxInfo?.firstSegmentStart ?? null;
-        const moov = boxes.find((box) => box.type === 'moov');
-
-        if (moov && (firstSegmentStart == null || moov.end < firstSegmentStart)) {
-            return moov.end;
-        }
-
-        if (sidxInfo?.start > 0) {
-            return sidxInfo.start - 1;
-        }
-
-        if (firstSegmentStart && firstSegmentStart > 0) {
-            return firstSegmentStart - 1;
-        }
-
-        return null;
-    }
-
-    async getAmazonCencMp4Info(streamUrl) {
-        const maxInitBytes = 2 * 1024 * 1024;
-        const response = await this.fetchWithTimeout(
-            streamUrl,
-            {
-                headers: { Range: `bytes=0-${maxInitBytes - 1}` },
-            },
-            12000
-        );
-
-        if (!response.ok && response.status !== 206) {
-            throw new Error(`Amazon init segment fetch failed: ${response.status}`);
-        }
-
-        const buffer = await this.readInitialBytes(response, maxInitBytes);
-        const keyId = this.findCencDefaultKid(buffer);
-        const sidx = this.findMp4SidxInfo(buffer);
-        if (!sidx) {
-            throw new Error('Could not find Amazon Music MP4 segment index');
-        }
-
-        return {
-            keyId,
-            sidx,
-            initRangeEnd: this.getAmazonInitRangeEnd(buffer, sidx),
-        };
-    }
-
-    createAmazonMusicDashManifest(streamUrl, trackInfo, qualityInfo, mp4Info) {
-        const codec = this.getAmazonCodecString(qualityInfo?.codec);
-        const bandwidth = Number(qualityInfo?.bandwidth) || 1000000;
-        const sampleRate = Number(qualityInfo?.sampleRate) || 48000;
-        const channels = Number(qualityInfo?.channels) || 2;
-        const duration = this.formatDurationForMpd(mp4Info?.sidx?.durationSeconds);
-        const initEnd = Number.isFinite(mp4Info?.initRangeEnd) ? mp4Info.initRangeEnd : mp4Info.sidx.start - 1;
-        const segmentBaseAttrs =
-            mp4Info?.sidx?.timescale && mp4Info?.sidx?.earliestPresentationTime != null
-                ? ` timescale="${mp4Info.sidx.timescale}" presentationTimeOffset="${mp4Info.sidx.earliestPresentationTime}"`
-                : '';
-        const representationId = this.escapeXml(trackInfo?.asin || 'amazon-music');
-        const escapedStreamUrl = this.escapeXml(streamUrl);
-
-        let contentProtection = '';
-        if (mp4Info?.keyId) {
-            const keyId = this.formatKeyIdUuid(mp4Info.keyId);
-            contentProtection = `
-      <ContentProtection schemeIdUri="urn:mpeg:dash:mp4protection:2011" value="cenc" cenc:default_KID="${keyId}"/>
-      <ContentProtection schemeIdUri="urn:uuid:e2719d58-a985-b3c9-781a-b030af78d30e" cenc:default_KID="${keyId}"/>`;
-        }
-
-        return `<?xml version="1.0" encoding="UTF-8"?>
-<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" xmlns:cenc="urn:mpeg:cenc:2013" profiles="urn:mpeg:dash:profile:isoff-on-demand:2011" type="static" mediaPresentationDuration="${duration}" minBufferTime="PT1.5S">
-  <Period id="0" start="PT0S" duration="${duration}">
-    <AdaptationSet id="1" contentType="audio" mimeType="audio/mp4" codecs="${this.escapeXml(codec)}" audioSamplingRate="${sampleRate}" segmentAlignment="true" startWithSAP="1">${contentProtection}
-      <Representation id="${representationId}" bandwidth="${bandwidth}" codecs="${this.escapeXml(codec)}">
-        <AudioChannelConfiguration schemeIdUri="urn:mpeg:dash:23003:3:audio_channel_configuration:2011" value="${channels}"/>
-        <BaseURL>${escapedStreamUrl}</BaseURL>
-        <SegmentBase indexRange="${mp4Info.sidx.start}-${mp4Info.sidx.end}"${segmentBaseAttrs}>
-          <Initialization range="0-${initEnd}"/>
-        </SegmentBase>
-      </Representation>
-    </AdaptationSet>
-  </Period>
-</MPD>`;
-    }
-
-    createAmazonMusicDashUrl(streamUrl, trackInfo, qualityInfo, mp4Info) {
-        const manifest = this.createAmazonMusicDashManifest(streamUrl, trackInfo, qualityInfo, mp4Info);
-        const blob = new Blob([manifest], { type: 'application/dash+xml' });
-        return URL.createObjectURL(blob);
-    }
-
-    getAmazonTrackTitle(track) {
+    getLegacyTrackTitle(track) {
         const title = String(track?.title || track?.name || '').trim();
         const version = String(track?.version || '').trim();
         return title && version ? `${title} (${version})` : title;
     }
 
-    getAmazonTrackArtist(track) {
+    getLegacyTrackArtist(track) {
         if (Array.isArray(track?.artists) && track.artists.length > 0) {
             const artists = track.artists
                 .map((artist) => (typeof artist === 'string' ? artist : artist?.name || artist?.title))
@@ -2529,30 +2405,30 @@ export class LosslessAPI {
         return '';
     }
 
-    getAmazonTrackAlbum(track) {
+    getLegacyTrackAlbum(track) {
         if (typeof track?.album === 'string') return track.album.trim();
         return String(track?.album?.title || track?.album?.name || '').trim();
     }
 
-    getAmazonTrackDuration(track) {
+    getLegacyTrackDuration(track) {
         const duration = Number(track?.duration);
         if (!Number.isFinite(duration) || duration <= 0) return null;
         return duration > 10000 ? duration / 1000 : duration;
     }
 
     buildUnifiedPlaybackLookupParams(track, quality, options = {}) {
-        const title = this.getAmazonTrackTitle(track);
+        const title = this.getLegacyTrackTitle(track);
         if (!title) {
             throw new Error('Unified Playback lookup requires a track title');
         }
 
         const params = new URLSearchParams({ track: title });
-        const artist = this.getAmazonTrackArtist(track);
-        const album = this.getAmazonTrackAlbum(track);
+        const artist = this.getLegacyTrackArtist(track);
+        const album = this.getLegacyTrackAlbum(track);
         const isrc = String(track?.isrc || '')
             .trim()
             .toUpperCase();
-        const duration = this.getAmazonTrackDuration(track);
+        const duration = this.getLegacyTrackDuration(track);
         const intent = options.intent || 'stream';
 
         if (artist) params.set('artist', artist);
@@ -2707,8 +2583,8 @@ export class LosslessAPI {
         const quality = String(resource?.quality || '').toUpperCase();
         if (quality.startsWith('DOLBY_ATMOS_AC4_')) return 'ac4';
         if (quality.startsWith('DOLBY_ATMOS_EAC3_') || quality === 'DOLBY_ATMOS') return 'eac3-joc';
-        if (source === 'amazon' && /^(UHD|HD|HI_RES_LOSSLESS|LOSSLESS)(_|$)/.test(quality)) return 'flac';
-        if (source === 'amazon' && /^(SD|HIGH|LOW)(_|$)/.test(quality)) return 'opus';
+        if (source === 'legacy' && /^(UHD|HD|HI_RES_LOSSLESS|LOSSLESS)(_|$)/.test(quality)) return 'flac';
+        if (source === 'legacy' && /^(SD|HIGH|LOW)(_|$)/.test(quality)) return 'opus';
         return resource?.codec?.toLowerCase() || null;
     }
 
@@ -2788,13 +2664,13 @@ export class LosslessAPI {
             }
 
             const selectedSource = String(resource.source || envelope.selected_source || '').toLowerCase();
-            if (!['amazon', 'tidal', 'mono', 'monochrome'].includes(selectedSource)) {
+            if (!['legacy', 'tidal', 'mono', 'monochrome'].includes(selectedSource)) {
                 throw new Error(`Unified Playback selected an unsupported source: ${selectedSource || 'unknown'}`);
             }
 
             let provider = selectedSource;
             if (selectedSource === 'mono') provider = 'monochrome';
-            else if (selectedSource === 'amazon') provider = 'amazon';
+            else if (selectedSource === 'legacy') provider = 'legacy';
             else if (selectedSource === 'tidal') provider = 'tidal';
 
             const isManifest =
@@ -2809,7 +2685,6 @@ export class LosslessAPI {
                         resource.url.startsWith('data:application/dash+xml')));
 
             const sourceUrl = resource.url;
-            const decryptionKey = this.getAmazonDecryptionKey(resource);
             const qualityInfo = this.getUnifiedPlaybackQualityInfo(resource);
             const deliveredQuality = resource.quality || envelope.quality_requested || canonicalQuality || quality;
             const normalizedQuality = normalizeQualityToken(deliveredQuality) || deliveredQuality;
@@ -2819,14 +2694,13 @@ export class LosslessAPI {
                 quality: normalizedQuality,
                 qualityRequested: envelope.quality_requested || canonicalQuality,
                 qualityDisplay:
-                    provider === 'amazon'
-                        ? this.getAmazonQualityDisplay({ quality_selected: normalizedQuality }, qualityInfo)
+                    provider === 'legacy'
+                        ? this.getLegacyQualityDisplay({ quality_selected: normalizedQuality }, qualityInfo)
                         : provider === 'monochrome'
                           ? normalizedQuality === 'LOSSLESS'
                               ? 'FLAC'
                               : normalizedQuality
                           : normalizedQuality,
-                decryptionKey,
                 keyId: this.getUnifiedPlaybackKeyId(resource),
                 codec: qualityInfo.codec || resource.codec || null,
                 bitDepth: qualityInfo.bitDepth,
@@ -2856,39 +2730,6 @@ export class LosslessAPI {
                 };
             }
 
-            if (selectedSource === 'amazon' && !isManifest && decryptionKey) {
-                const mp4Info = await this.getAmazonCencMp4Info(sourceUrl).catch((error) => {
-                    console.warn('Failed to inspect Unified Playback Amazon MP4:', error);
-                    return null;
-                });
-                const keyId = baseResult.keyId || mp4Info?.keyId || null;
-                if (decryptionKey && !keyId && !options.allowCencWithoutKeyId) {
-                    throw new Error('Could not find Unified Playback Amazon CENC key ID');
-                }
-
-                const trackInfo = {
-                    id: envelope.track?.id || null,
-                    asin: envelope.track?.id || null,
-                    duration: (envelope.track?.duration_ms || 0) / 1000 || this.getAmazonTrackDuration(track),
-                    quality_selected: normalizedQuality,
-                    quality_requested: envelope.quality_requested || canonicalQuality,
-                };
-                const manifestUrl = mp4Info
-                    ? this.createAmazonMusicDashUrl(sourceUrl, trackInfo, qualityInfo, { ...mp4Info, keyId })
-                    : sourceUrl;
-
-                return {
-                    ...baseResult,
-                    url: manifestUrl,
-                    asin: envelope.track?.id || null,
-                    keyId,
-                    playbackType: mp4Info ? (keyId ? 'dash-cenc' : 'dash') : 'direct',
-                    mimeType: mp4Info
-                        ? 'application/dash+xml'
-                        : resource.mime_type || this.getAmazonMimeType(qualityInfo),
-                };
-            }
-
             if (isManifest) {
                 const isHls =
                     resource.delivery === 'hls' ||
@@ -2900,7 +2741,7 @@ export class LosslessAPI {
                 return {
                     ...baseResult,
                     url: sourceUrl,
-                    playbackType: isHls ? 'hls' : decryptionKey ? 'dash-cenc' : 'dash',
+                    playbackType: isHls ? 'hls' : 'dash',
                     mimeType: resource.mime_type || (isHls ? 'application/vnd.apple.mpegurl' : 'application/dash+xml'),
                 };
             }
@@ -2961,9 +2802,6 @@ export class LosslessAPI {
         const isApple = inputTrack?.provider === 'apple' || String(id || '').startsWith('apple:');
         const track = inputTrack || (id && !isApple ? await this.getTrackMetadata(id).catch(() => null) : null);
 
-        const canPlayAmazonCenc = canUseNativeAmazonCenc;
-        const needsProxyDecryption = !canPlayAmazonCenc;
-
         let actualQuality = quality;
 
         const exactAtmosQuality = isAtmosQuality(quality) ? quality : null;
@@ -2977,7 +2815,6 @@ export class LosslessAPI {
                 unifiedResult = await this.getUnifiedPlaybackStreamUrl(id, atmosQuality, {
                     preferAdaptiveAuto: true,
                     track,
-                    allowCencWithoutKeyId: needsProxyDecryption,
                     intent: 'stream',
                 });
             } catch (err) {
@@ -2997,45 +2834,11 @@ export class LosslessAPI {
             unifiedResult = await this.getUnifiedPlaybackStreamUrl(id, quality, {
                 preferAdaptiveAuto: true,
                 track,
-                allowCencWithoutKeyId: needsProxyDecryption,
                 intent: 'stream',
             });
         }
 
         if (unifiedResult?.url) {
-            if (
-                unifiedResult.provider === 'amazon' &&
-                needsProxyDecryption &&
-                unifiedResult.decryptionKey &&
-                (unifiedResult.sourceUrl || unifiedResult.url)
-            ) {
-                const sourceUrl = unifiedResult.sourceUrl || unifiedResult.url;
-                const resourceCodec = String(unifiedResult.codec || '').toLowerCase();
-                const targetCodec =
-                    resourceCodec === 'opus'
-                        ? 'opus'
-                        : resourceCodec === 'ac4' || resourceCodec === 'ac-4'
-                          ? 'ac4'
-                          : resourceCodec === 'eac3' || resourceCodec === 'eac3-joc' || resourceCodec === 'ec-3'
-                            ? 'eac3'
-                            : resourceCodec === 'aac' || resourceCodec.startsWith('mp4a')
-                              ? 'mp4a'
-                              : getAmazonDecrypterCodec(quality);
-                const origin =
-                    typeof window !== 'undefined' && window.location
-                        ? `${window.location.protocol}//${window.location.host}`
-                        : '';
-                return {
-                    ...unifiedResult,
-                    url: `${origin}/api/decrypt-stream?url=${encodeURIComponent(sourceUrl)}&key=${encodeURIComponent(unifiedResult.decryptionKey)}&codec=${encodeURIComponent(targetCodec)}`,
-                    playbackType: 'direct',
-                    mimeType:
-                        targetCodec === 'flac-hls'
-                            ? 'application/vnd.apple.mpegurl'
-                            : unifiedResult.mediaMimeType || 'audio/mp4',
-                };
-            }
-
             // The unified endpoint is no-store and may return a single-use Mono URL.
             return unifiedResult;
         }
@@ -3142,8 +2945,6 @@ export class LosslessAPI {
         let externalStreamUrl = null;
         let externalStreamType = null;
         let externalProvider = null;
-        let externalDecryptionKey = null;
-        let externalKeyId = null;
         let externalMimeType = null;
         let externalMediaMimeType = null;
         let externalSourceUrl = null;
@@ -3205,8 +3006,6 @@ export class LosslessAPI {
                 externalRgInfo = externalResult.rgInfo;
                 externalStreamType = externalResult.playbackType || null;
                 externalProvider = externalResult.provider || (unifiedResult?.url ? 'unified' : 'deezer');
-                externalDecryptionKey = externalResult.decryptionKey || null;
-                externalKeyId = externalResult.keyId || null;
                 externalMimeType = externalResult.mimeType || null;
                 externalMediaMimeType = externalResult.mediaMimeType || externalMimeType;
                 externalSourceUrl = externalResult.sourceUrl || externalStreamUrl;
@@ -3316,14 +3115,12 @@ export class LosslessAPI {
             result.externalStreamUrl = externalStreamUrl;
             result.externalStreamType = externalStreamType;
             result.externalProvider = externalProvider;
-            result.externalDecryptionKey = externalDecryptionKey;
-            result.externalKeyId = externalKeyId;
             result.externalMimeType = externalMimeType;
             result.externalMediaMimeType = externalMediaMimeType;
             result.externalSourceUrl = externalSourceUrl;
         }
-        if (externalProvider === 'amazon') {
-            result.amazonMusicStreamUrl = externalSourceUrl || externalStreamUrl;
+        if (externalProvider === 'legacy') {
+            result.legacyStreamUrl = externalSourceUrl || externalStreamUrl;
         }
         return result;
     }
@@ -3439,36 +3236,7 @@ export class LosslessAPI {
                 }
             }
 
-            if (enriched.externalProvider === 'amazon' && enriched.externalStreamType?.includes('cenc')) {
-                const response = await fetch(enriched.externalSourceUrl || streamUrl, {
-                    cache: 'no-store',
-                    signal: options.signal,
-                });
-
-                if (!response.ok) {
-                    throw new Error(`Fetch failed: ${response.status}`);
-                }
-
-                const encryptedBlob = await response.blob();
-                const preserveAtmos = isAtmosQuality(downloadQuality) || isAtmosQuality(postProcessingQuality);
-                const outputName = preserveAtmos ? 'output.m4a' : 'output.flac';
-                const outputMime = preserveAtmos ? 'audio/mp4' : 'audio/flac';
-                blob = await ffmpeg(encryptedBlob, {
-                    rawArgs: [
-                        '-decryption_key',
-                        enriched.externalDecryptionKey,
-                        '-i',
-                        'input',
-                        '-c:a',
-                        preserveAtmos ? 'copy' : 'flac',
-                        outputName,
-                    ],
-                    outputName,
-                    outputMime,
-                    onProgress,
-                    signal: options.signal,
-                });
-            } else if (
+            if (
                 streamUrl.startsWith('blob:') ||
                 streamUrl.startsWith('data:') ||
                 enriched.externalStreamType?.includes('dash') ||
