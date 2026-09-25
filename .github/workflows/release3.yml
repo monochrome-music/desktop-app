@@ -1,0 +1,192 @@
+name: Release 3.0
+
+on:
+  workflow_dispatch:
+  repository_dispatch:
+    types: [upstream_commit]
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    name: Sync upstream and bump version
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout main repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout external repository
+        uses: actions/checkout@v4
+        with:
+          repository: monochrome-music/monochrome
+          ref: main
+          path: temp-external-repo
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Copy files from external repository
+        shell: bash
+        run: |
+          mkdir -p js images assets public
+
+          rsync -a --delete temp-external-repo/js/ ./js/
+          rsync -a --delete temp-external-repo/images/ ./images/
+          rsync -a --delete temp-external-repo/assets/ ./assets/
+          rsync -a --delete temp-external-repo/public/ ./public/
+
+          if [ -f temp-external-repo/vite-plugin-upload.js ]; then
+            cp -f temp-external-repo/vite-plugin-upload.js ./vite-plugin-upload.js
+          else
+            rm -f ./vite-plugin-upload.js
+          fi
+
+          if [ -f temp-external-repo/vite-plugin-svg-use.ts ]; then
+            cp -f temp-external-repo/vite-plugin-svg-use.ts ./vite-plugin-svg-use.ts
+          else
+            rm -f ./vite-plugin-svg-use.ts
+          fi
+
+          if [ -f temp-external-repo/vite-plugin-blob.ts ]; then
+            cp -f temp-external-repo/vite-plugin-blob.ts ./vite-plugin-blob.ts
+          else
+            rm -f ./vite-plugin-blob.ts
+          fi
+
+          if [ -f temp-external-repo/vite-plugin-auth-gate.js ]; then
+            cp -f temp-external-repo/vite-plugin-auth-gate.js ./vite-plugin-auth-gate.js
+          else
+            rm -f ./vite-plugin-auth-gate.js
+          fi
+
+          if [ -f temp-external-repo/index.html ]; then
+            cp -f temp-external-repo/index.html ./index.html
+          else
+            rm -f ./index.html
+          fi
+
+          if [ -f temp-external-repo/style.css ]; then
+            cp -f temp-external-repo/style.css ./style.css
+          else
+            rm -f ./style.css
+          fi
+
+          if [ -f temp-external-repo/styles.css ]; then
+            cp -f temp-external-repo/styles.css ./styles.css
+          else
+            rm -f ./styles.css
+          fi
+
+          rm -rf temp-external-repo
+
+      - name: Bump version and commit
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          OLD_VER=$(jq -r '.version' src-tauri/tauri.conf.json)
+
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$OLD_VER"
+          NEW_PATCH=$((PATCH + 1))
+          NEW_VER="${MAJOR}.${MINOR}.${NEW_PATCH}"
+
+          echo "Bumping version from $OLD_VER to $NEW_VER"
+
+          jq --arg ver "$NEW_VER" \
+            '.version = $ver' \
+            src-tauri/tauri.conf.json > src-tauri/tauri.conf.json.tmp
+
+          mv src-tauri/tauri.conf.json.tmp src-tauri/tauri.conf.json
+
+          sed -i \
+            "s/^version = \"$OLD_VER\"/version = \"$NEW_VER\"/" \
+            src-tauri/Cargo.toml
+
+          git add .
+
+          if ! git diff-index --quiet HEAD; then
+            git commit \
+              -m "chore(release): update files from upstream & bump version to $NEW_VER [skip ci]"
+
+            git push origin main
+          else
+            echo "No changes to commit."
+          fi
+
+  build:
+    name: Build ${{ matrix.os }}
+    needs: sync
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - windows-latest
+          - macos-latest
+          - ubuntu-22.04
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout updated main repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-cache: true
+
+      - if: runner.os == 'Linux'
+        name: Install Linux dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y \
+            jq \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            src-tauri -> target
+
+      - id: version
+        name: Get version
+        shell: bash
+        run: |
+          VERSION="v$(jq -r '.version' src-tauri/tauri.conf.json)"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Build & Publish Release Assets
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
+        with:
+          tagName: ${{ steps.version.outputs.version }}
+          releaseName: ${{ steps.version.outputs.version }}
+          generateReleaseNotes: true
+          uploadUpdaterJson: true
+          releaseDraft: false
+          prerelease: false
+          updaterJsonUrl: "https://github.com/monochrome-music/desktop-app/releases/latest/download/latest.json"
+          includeAppImage: true
+          includeDeb: true
+          includeRpm: true
+          includeDmg: true
+          includeMsi: true
+          includeExe: true
